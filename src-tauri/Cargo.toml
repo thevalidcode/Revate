@@ -1,0 +1,56 @@
+[package]
+name = "revate"
+version = "0.1.0"
+description = "A local-first, open-source screen recorder and auto-editor"
+authors = ["Revate Contributors"]
+edition = "2021"
+
+[lib]
+name = "revate_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "revate"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri 2.x core framework
+tauri = { version = "2", features = [] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Input capture
+# rdev: Cross-platform keyboard and mouse events
+rdev = "0.1.0"
+
+# Screen capture
+# scap: Screen capture (macOS primarily)
+scap = "0.1.0"
+
+# Audio
+# cpal: Cross-platform audio I/O
+cpal = "0.15"
+# hound: WAV file reading/writing
+hound = "3.5"
+
+# FFmpeg integration
+# ffmpeg-sidecar: FFmpeg binary management
+ffmpeg-sidecar = "0.1.0"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
