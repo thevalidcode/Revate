@@ -182,7 +182,6 @@ fn capture_thread(
         return Err(anyhow!(msg));
     }
     let _ = init.send(Ok(()));
-    eprintln!("[system audio] recording device #{index} → {}", output.display());
 
     while !stop.load(Ordering::Relaxed) {
         std::thread::sleep(Duration::from_millis(100));
@@ -198,7 +197,6 @@ fn capture_thread(
         return Err(anyhow!("ffmpeg (system audio) exited with {status}"));
     }
 
-    eprintln!("[system audio] finalized {}", output.display());
     Ok(output)
 }
 

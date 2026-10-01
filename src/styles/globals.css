@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
 
 /*
  * Tailwind v4 is CSS-first: the design tokens below have to be registered with
@@ -128,26 +127,92 @@
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
   }
-  /*
-   * Font tokens are declared on :root as well as `.theme` so that the
-   * `font-sans` / `font-heading` utilities resolve even though nothing in the
-   * app ever applies a `.theme` class (main.tsx only toggles `.dark`).
-   */
-  :root,
-  .theme {
-    --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system,
-      "Segoe UI", sans-serif;
-    --font-heading: var(--font-sans);
-  }
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground antialiased;
-    /* Compact desktop density — see AppShell. */
-    font-size: 13px;
-  }
-  html {
-    @apply font-sans;
-  }
+}
+
+/* ---------- Sansation font faces ---------- */
+
+/* Light */
+@font-face {
+  font-family: "Sansation";
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url("/assets/font/sansation/Sansation-Light.ttf") format("truetype");
+}
+
+/* Light Italic */
+@font-face {
+  font-family: "Sansation";
+  font-style: italic;
+  font-weight: 300;
+  font-display: swap;
+  src: url("/assets/font/sansation/Sansation-Light_Italic.ttf")
+    format("truetype");
+}
+
+/* Regular */
+@font-face {
+  font-family: "Sansation";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/assets/font/sansation/Sansation-Regular.ttf") format("truetype");
+}
+
+/* Regular Italic */
+@font-face {
+  font-family: "Sansation";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/assets/font/sansation/Sansation-Regular_Italic.ttf")
+    format("truetype");
+}
+
+/* Bold */
+@font-face {
+  font-family: "Sansation";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/assets/font/sansation/Sansation-Bold.ttf") format("truetype");
+}
+
+/* Bold Italic */
+@font-face {
+  font-family: "Sansation";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/assets/font/sansation/Sansation-Bold_Italic.ttf")
+    format("truetype");
+}
+
+/* ---------- Theme tokens & base styles ---------- */
+
+:root,
+.theme {
+  --font-sans:
+    "Sansation", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-heading: var(--font-sans);
+}
+
+* {
+  @apply border-border outline-ring/50;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+  /* Compact desktop density — see AppShell. */
+  font-size: 13px;
+}
+
+html {
+  font-family:
+    "Sansation",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
 }

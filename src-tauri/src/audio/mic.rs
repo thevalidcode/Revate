@@ -101,10 +101,6 @@ fn capture_thread(
         };
 
     let _ = init.send(Ok((sample_rate, channels)));
-    eprintln!(
-        "[mic] recording {sample_rate} Hz · {channels} ch → {}",
-        output.display()
-    );
 
     while !stop.load(Ordering::Relaxed) {
         std::thread::sleep(Duration::from_millis(50));
@@ -116,7 +112,6 @@ fn capture_thread(
     if let Some(w) = writer.lock().unwrap().take() {
         w.finalize().context("failed to finalize microphone WAV")?;
     }
-    eprintln!("[mic] finalized {}", output.display());
     Ok(output.to_path_buf())
 }
 

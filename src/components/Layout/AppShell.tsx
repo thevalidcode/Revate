@@ -1,29 +1,32 @@
 import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Settings2, ArrowLeft } from "lucide-react";
+import { Settings } from "lucide-react";
 
-import { Wordmark } from "@/components/Brand/Logo";
-import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/Brand/Logo";
 import { cn } from "@/lib/utils";
 
 export interface AppShellProps {
   children: ReactNode;
   className?: string;
-  /** Show the back arrow (settings → recorder). */
-  showBack?: boolean;
 }
 
 /**
- * Revate application shell.
+ * Revate application shell — one compact title strip plus the page body.
  *
- * - 44px draggable title bar (`data-tauri-drag-region`) with the brand mark on
- *   the left and the settings action on the right.
- * - Compact desktop density: 13px base text, 8–12px radii, 12–14px row padding
- *   (row padding lives with each settings row, see `Recorder`).
+ * The macOS title bar is an overlay (`titleBarStyle: "Overlay"` + `hiddenTitle`
+ * in tauri.conf.json), so the traffic lights float over this 40px header. The
+ * `pl-[78px]` gutter reserves their width, and `data-tauri-drag-region` keeps
+ * the strip draggable.
  *
- * Every page should render inside `<AppShell>` so the chrome stays consistent.
+ * Tauri's drag handler only starts a drag for a *bare* attribute when the click
+ * lands directly on the element that carries it, so the logo/wordmark wrapper
+ * repeats the attribute — while the settings button (a clickable tag) is left
+ * without it and therefore keeps its normal click behaviour.
+ *
+ * Contents are deliberately minimal: brand mark + wordmark on the left, one
+ * settings gear on the right. No menus, tabs or title text.
  */
-export function AppShell({ children, className, showBack = false }: AppShellProps) {
+export function AppShell({ children, className }: AppShellProps) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const onSettings = pathname.startsWith("/settings");
@@ -32,36 +35,32 @@ export function AppShell({ children, className, showBack = false }: AppShellProp
     <div className="flex h-screen flex-col overflow-hidden bg-background text-[13px] text-foreground">
       <header
         data-tauri-drag-region
-        className="flex h-11 shrink-0 select-none items-center justify-between gap-2 border-b border-border/80 bg-background/80 px-3 backdrop-blur-xl"
+        className="flex h-10 shrink-0 items-center justify-between border-b border-border pr-1.5 pl-[78px] select-none"
       >
         <div data-tauri-drag-region className="flex items-center gap-2">
-          {showBack && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Back to recorder"
-              className="-ml-1"
-              onClick={() => navigate("/recorder")}
-            >
-              <ArrowLeft className="size-4" />
-            </Button>
-          )}
-          <span data-tauri-drag-region className="flex items-center">
-            <Wordmark size={20} />
+          <Logo size={20} />
+          <span
+            data-tauri-drag-region
+            className="text-[12px] leading-none font-semibold tracking-tight"
+          >
+            Revate
           </span>
         </div>
 
-        <div data-tauri-drag-region className="flex items-center gap-1">
-          <Button
-            variant={onSettings ? "secondary" : "ghost"}
-            size="icon-sm"
-            aria-label="Settings"
-            title="Settings"
-            onClick={() => navigate(onSettings ? "/recorder" : "/settings")}
-          >
-            <Settings2 className="size-4" />
-          </Button>
-        </div>
+        <button
+          type="button"
+          aria-label={onSettings ? "Back to recorder" : "Settings"}
+          title={onSettings ? "Back to recorder" : "Settings"}
+          onClick={() => navigate(onSettings ? "/recorder" : "/settings")}
+          className={cn(
+            "grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors",
+            "hover:bg-secondary hover:text-foreground",
+            "focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none",
+            onSettings && "bg-secondary text-foreground",
+          )}
+        >
+          <Settings className="size-3.5" />
+        </button>
       </header>
 
       <main
@@ -78,3 +77,4 @@ export function AppShell({ children, className, showBack = false }: AppShellProp
 }
 
 export default AppShell;
+

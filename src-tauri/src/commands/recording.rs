@@ -141,8 +141,6 @@ pub async fn start_recording(
         None => None,
     };
 
-    eprintln!("[recording] started in {}", project_dir.display());
-
     let session = RecordingSession {
         project_dir: project_dir.clone(),
         video_path,
@@ -215,15 +213,6 @@ fn audio_tracks_in(dir: &Path) -> Vec<PathBuf> {
 /// Blocking teardown: stop video, stop audio, then mux. Runs in a blocking task
 /// so the async runtime is never held up by `join()`.
 fn finish_session(session: RecordingSession) -> anyhow::Result<PathBuf> {
-    eprintln!(
-        "[recording] stopping session ({}s, {}×{} @ {} fps) in {}",
-        session.started_at.elapsed().as_secs(),
-        session.width,
-        session.height,
-        session.fps,
-        session.project_dir.display()
-    );
-
     session.video_stop.store(true, Ordering::SeqCst);
     let video = session
         .video_thread
@@ -231,14 +220,8 @@ fn finish_session(session: RecordingSession) -> anyhow::Result<PathBuf> {
         .map_err(|e| anyhow::anyhow!("video thread panicked: {e:?}"))??;
 
     let mut tracks: Vec<PathBuf> = Vec::new();
-
     if let Some(rec) = session.mic {
-        eprintln!(
-            "[recording] stopping microphone ({} Hz · {} ch) → {}",
-            rec.sample_rate,
-            rec.channels,
-            session.mic_path.display()
-        );
+
         match rec.stop() {
             Ok(path) => tracks.push(path),
             Err(e) => eprintln!("[recording] microphone stop failed: {e}"),
@@ -246,11 +229,6 @@ fn finish_session(session: RecordingSession) -> anyhow::Result<PathBuf> {
     }
 
     if let Some(rec) = session.system {
-        eprintln!(
-            "[recording] stopping system audio ({}) → {}",
-            rec.device_name,
-            session.system_path.display()
-        );
         match rec.stop() {
             Ok(path) => tracks.push(path),
             Err(e) => eprintln!("[recording] system audio stop failed: {e}"),
@@ -267,7 +245,6 @@ fn finish_session(session: RecordingSession) -> anyhow::Result<PathBuf> {
         Ok(path) => Ok(path),
         Err(e) => {
             // Keep the separate files around rather than losing the take.
-            eprintln!("[recording] mux failed, keeping raw tracks: {e}");
             Ok(video)
         }
     }

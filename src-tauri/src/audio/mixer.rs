@@ -55,7 +55,6 @@ pub fn mux_tracks(video: &Path, audio: &[&Path], output: &Path) -> Result<PathBu
     cmd.stdout(Stdio::null());
     cmd.stderr(Stdio::inherit());
 
-    eprintln!("[audio] muxing {} track(s) → {}", audio.len(), output.display());
     let status = cmd.status().context("failed to run ffmpeg for muxing")?;
     if !status.success() {
         return Err(anyhow!("ffmpeg mux exited with {status}"));

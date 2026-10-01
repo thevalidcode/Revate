@@ -420,7 +420,7 @@ export default function Recorder() {
         </footer>
       </div>
 
-      <Toaster position="bottom-right" theme="dark" />
+      <Toaster />
     </AppShell>
   );
 }

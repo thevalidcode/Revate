@@ -41,7 +41,7 @@ export default function Settings() {
   };
 
   return (
-    <AppShell showBack>
+    <AppShell>
       <div className="min-h-0 flex-1 overflow-auto px-6 py-6">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
           <h1 className="text-[15px] font-semibold tracking-tight">Settings</h1>
@@ -104,7 +104,7 @@ export default function Settings() {
         </div>
       </div>
 
-      <Toaster position="bottom-right" theme="dark" />
+      <Toaster />
     </AppShell>
   );
 }

@@ -159,11 +159,6 @@ pub fn record_loop(cfg: CaptureConfig, stop_flag: Arc<AtomicBool>) -> Result<Pat
     cmd.stdout(Stdio::null());
     cmd.stderr(Stdio::inherit());  // ffmpeg progress prints to the dev terminal
 
-    eprintln!(
-        "[capture] spawning ffmpeg: input={input} output={}",
-        cfg.output.display()
-    );
-
     let mut child = cmd
         .spawn()
         .context("failed to spawn ffmpeg — is it on PATH? try `brew install ffmpeg`")?;
@@ -185,6 +180,5 @@ pub fn record_loop(cfg: CaptureConfig, stop_flag: Arc<AtomicBool>) -> Result<Pat
         return Err(anyhow!("ffmpeg exited with status: {status}"));
     }
 
-    eprintln!("[capture] finalized {}", cfg.output.display());
     Ok(cfg.output)
 }

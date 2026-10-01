@@ -21,7 +21,6 @@ pub fn schedule_sfx(
             other => {
                 // Unknown event kind — skip rather than fail the whole export.
                 // (Change to `return Err(...)` if you'd rather be strict.)
-                eprintln!("schedule_sfx: unknown event type `{other}`, skipping");
                 continue;
             }
         };
