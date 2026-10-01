@@ -67,6 +67,10 @@ pub struct RegionInput {
 /// audio captures for the microphone (cpal) and/or system audio (BlackHole via
 /// a second FFmpeg process). Returns the project directory.
 #[tauri::command]
+// The argument count mirrors the `invoke` payload from the recorder UI one-for-one.
+// Tauri maps JS object keys onto positional command parameters, so folding these
+// into a request struct would change the IPC contract rather than tidy the code.
+#[allow(clippy::too_many_arguments)]
 pub async fn start_recording(
     app: AppHandle,
     state: State<'_, RecordingState>,

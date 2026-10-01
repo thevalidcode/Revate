@@ -1,8 +1,17 @@
-mod audio;
-mod capture;
-mod commands;
-mod state;
-mod utils;
+// The feature modules are public because `revate_lib` is an rlib as well as the
+// app's entry point. Anything reachable only from `run()` is invisible to the
+// compiler's dead-code analysis, so a module that is complete, tested and simply
+// not wired to a command yet (`cursor`, `zoom`, `events`, …) fills the build log
+// with warnings. Exposing them keeps them honest as part of the crate's API.
+pub mod audio;
+pub mod capture;
+pub mod commands;
+pub mod cursor;
+pub mod events;
+pub mod input;
+pub mod state;
+pub mod utils;
+pub mod zoom;
 
 use tauri::Manager;
 

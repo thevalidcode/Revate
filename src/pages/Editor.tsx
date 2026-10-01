@@ -150,26 +150,58 @@ export default function Editor({ sessionId }: { sessionId: string }) {
   }, [custom]);
 
   // ---------- Derived ----------
+  // ---------- Derived ----------
   const loading = !info && !loadError;
 
   /**
-   * The video box, in CSS pixels: the recording's own aspect ratio fitted
-   * inside the measured stage.
+   * The crop rect the *preview* is currently showing, or `null` for the whole
+   * frame.
    *
-   * This is what makes the preview the same size no matter how the editor was
-   * opened. The stage is `flex-1 min-h-0` and so has a size of its own, while
-   * the frame is driven by the dimensions FFprobe already reported — never by
-   * the `<video>`'s intrinsic size, which is 300×150 until its metadata lands
-   * and is the reason the preview used to come up tiny on a cold window.
+   * Custom mode always shows the full frame — the mask and handles need the
+   * whole picture to drag against. Everywhere else a non-full rect clips the
+   * preview, so picking a preset visibly reshapes the video instead of only
+   * moving some chrome around on top of it.
+   */
+  const previewCrop = useMemo(() => {
+    if (custom) return null;
+    return isFullFrame(crop) ? null : crop;
+  }, [crop, custom]);
+
+  /**
+   * Scale that fits the *whole* recording inside the measured stage. The
+   * preview never zooms: cropping shrinks the visible box and clips, so a
+   * pixel of video stays the same size on screen while you switch presets.
+   */
+  const scale = useMemo(() => {
+    if (!info || stage.width < 1 || stage.height < 1) return null;
+    return Math.min(stage.width / info.width, stage.height / info.height);
+  }, [info, stage.height, stage.width]);
+
+  /** The <video>'s own box at that scale — always the full frame. */
+  const videoBox = useMemo(() => {
+    if (!info || scale == null) return null;
+    return { width: info.width * scale, height: info.height * scale };
+  }, [info, scale]);
+
+  /**
+   * The visible box: the video box clipped to the current crop. Its aspect
+   * ratio is the export's, so the preview reads as the finished file.
    */
   const frame = useMemo(() => {
-    if (!info || stage.width < 1 || stage.height < 1) return null;
-    const scale = Math.min(stage.width / info.width, stage.height / info.height);
+    if (!videoBox) return null;
+    const rect = previewCrop ?? FULL_FRAME;
     return {
-      width: Math.max(1, Math.round(info.width * scale)),
-      height: Math.max(1, Math.round(info.height * scale)),
+      width: Math.max(1, Math.round(videoBox.width * rect.w)),
+      height: Math.max(1, Math.round(videoBox.height * rect.h)),
     };
-  }, [info, stage.height, stage.width]);
+  }, [previewCrop, videoBox]);
+
+  /** Offset that slides the crop's top-left corner onto the box's origin. */
+  const videoOffset = useMemo(() => {
+    if (!videoBox) return null;
+    const rect = previewCrop ?? FULL_FRAME;
+    return { left: -rect.x * videoBox.width, top: -rect.y * videoBox.height };
+  }, [previewCrop, videoBox]);
 
   /** Pixel size the current crop will produce (even, for yuv420p). */
   const cropSize = useMemo(() => {
@@ -301,10 +333,11 @@ export default function Editor({ sessionId }: { sessionId: string }) {
         <section className="flex min-w-0 flex-1 flex-col border-r border-border">
           {/*
             The stage owns the layout: it is `flex-1 min-h-0` inside the column,
-            so it always has a height of its own, and the frame inside it is
-            sized in pixels from that measurement. Nothing here waits on the
-            video's intrinsic size, which is what used to make the preview come
-            up small when the window was freshly created.
+            so it always has a height of its own. The full-frame video box is
+            sized in pixels from that measurement, and the visible box is that
+            box clipped to the active crop — never the `<video>`'s intrinsic
+            size, which is 300×150 until its metadata lands and is what used to
+            make the preview come up small on a cold window.
           */}
           <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-5">
             {loadError ? (
@@ -325,14 +358,24 @@ export default function Editor({ sessionId }: { sessionId: string }) {
             ) : (
               // Always mounted (even before `info` lands) so the observer has
               // something to measure.
-              <div ref={stageRef} className="relative flex size-full items-center justify-center">
-                {info && frame && (
+              <div
+                ref={stageRef}
+                className="relative flex size-full items-center justify-center"
+              >
+                {info && frame && videoBox && videoOffset && (
                   <div
                     className="relative shrink-0 overflow-hidden rounded-lg border border-border bg-black"
                     style={{ width: frame.width, height: frame.height }}
                     onPointerEnter={() => setHovering(true)}
                     onPointerLeave={() => setHovering(false)}
                   >
+                    {/*
+                    The <video> stays at full-frame size and is slid behind
+                    the box's origin; `overflow-hidden` on the parent does the
+                    cropping. `max-w-none` is required — Tailwind's preflight
+                    caps replaced elements at `max-width: 100%`, which would
+                    otherwise squash the video into the (smaller) box.
+                  */}
                     <video
                       ref={videoRef}
                       src={assetUrl(info.videoPath)}
@@ -346,7 +389,13 @@ export default function Editor({ sessionId }: { sessionId: string }) {
                       }}
                       onPlay={() => setPlaying(true)}
                       onPause={() => setPlaying(false)}
-                      className="size-full object-contain"
+                      className="absolute max-w-none object-contain"
+                      style={{
+                        left: videoOffset.left,
+                        top: videoOffset.top,
+                        width: videoBox.width,
+                        height: videoBox.height,
+                      }}
                     />
 
                     {/* Mask, thirds guides and the eight handles — custom only. */}

@@ -1,8 +1,10 @@
 //! Input event capture.
-//! Responsible for capturing keyboard, mouse, and cursor events with high-resolution timestamps.
-//! Provides hooks for monitoring user input during recording.
+//!
+//! [`tracker`] is the live half: it taps the OS while a take is running and
+//! writes `events.revents`. [`event`] and [`cursor`] are the replay half — the
+//! parsed trail, and the video-space sampling (spring smoothing, click ripples,
+//! dwells) that the zoom planner and the cursor renderer build on.
 
-pub mod listener;
 pub mod cursor;
-pub mod keyboard;
 pub mod event;
+pub mod tracker;
