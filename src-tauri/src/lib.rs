@@ -1,18 +1,32 @@
-// Revate library module
-// This module exposes the core functionality to Tauri commands
+mod audio;
+mod capture;
+mod commands;
+mod state;
+mod utils;
 
-pub mod capture;
-pub mod input;
-pub mod window_track;
-pub mod audio;
-pub mod events;
-pub mod zoom;
-pub mod speed;
-pub mod chapters;
-pub mod redaction;
-pub mod sfx;
-pub mod compositor;
-pub mod encode;
-pub mod project;
-pub mod commands;
-pub mod utils;
+use state::RecordingState;
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .manage(RecordingState::default())
+        .invoke_handler(tauri::generate_handler![
+            // Display enumeration + the on-screen picker.
+            commands::displays::list_display_rects,
+            commands::displays::get_selected_display,
+            commands::displays::open_display_picker,
+            commands::displays::close_all_pickers,
+            commands::displays::display_chosen,
+            // Audio device enumeration.
+            commands::recording::list_capture_devices,
+            commands::recording::list_audio_inputs,
+            commands::recording::list_system_audio_devices,
+            // Recording lifecycle.
+            commands::recording::start_recording,
+            commands::recording::stop_recording,
+            commands::recording::is_recording,
+            commands::recording::mux_recording,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

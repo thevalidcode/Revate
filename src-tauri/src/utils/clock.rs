@@ -1,15 +1,22 @@
 //! High-resolution clock and timing utilities.
 //! Provides monotonic time measurement for precise event timing.
-//! TODO: Implement timing utilities.
+use std::time::Instant;
 
-pub fn now() -> f64 {
-    todo!("Implement high-resolution clock")
+#[derive(Clone)]
+pub struct Clock {
+    origin: Instant,
 }
 
-pub fn duration_since(start: f64) -> f64 {
-    todo!("Implement duration calculation")
+impl Clock {
+    pub fn new() -> Self {
+        Self { origin: Instant::now() }
+    }
+
+    pub fn now_secs(&self) -> f64 {
+        self.origin.elapsed().as_secs_f64()
+    }
 }
 
-pub fn elapsed_since(start: std::time::Instant) -> f64 {
-    todo!("Implement elapsed time calculation")
+impl Default for Clock {
+    fn default() -> Self { Self::new() }
 }
