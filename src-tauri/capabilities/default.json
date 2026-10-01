@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Core permissions for the recorder window, the editor window and the display-picker overlays.",
-  "windows": ["main", "editor", "picker-*"],
+  "windows": ["main", "editor", "projects", "picker-*"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

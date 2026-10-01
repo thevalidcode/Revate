@@ -28,7 +28,7 @@ pub fn mux_tracks(video: &Path, audio: &[&Path], output: &Path) -> Result<PathBu
     }
 
     let mut cmd = Command::new("ffmpeg");
-    cmd.args(["-hide_banner", "-loglevel", "warning", "-y"]);
+    cmd.args(["-hide_banner", "-nostats", "-loglevel", "error", "-y"]);
     cmd.arg("-i").arg(video);
     for track in audio {
         cmd.arg("-i").arg(track);
@@ -53,7 +53,7 @@ pub fn mux_tracks(video: &Path, audio: &[&Path], output: &Path) -> Result<PathBu
 
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::null());
-    cmd.stderr(Stdio::inherit());
+    cmd.stderr(Stdio::null());
 
     let status = cmd.status().context("failed to run ffmpeg for muxing")?;
     if !status.success() {

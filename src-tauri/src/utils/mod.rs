@@ -1,9 +1,6 @@
-//! Utility functions and helpers.
-//! Provides common utilities used across the application.
-//! Includes clock, path handling, logging, and error utilities.
+//! Utility helpers.
+//! Currently: on-disk paths for recording projects, and a thin `ffprobe`
+//! wrapper used to describe a capture.
 
-pub mod clock;
-pub mod paths;
-pub mod logging;
-pub mod errors;
 pub mod ffprobe;
+pub mod paths;

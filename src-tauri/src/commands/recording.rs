@@ -1,8 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
-
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
@@ -144,16 +142,10 @@ pub async fn start_recording(
     let session = RecordingSession {
         project_dir: project_dir.clone(),
         video_path,
-        mic_path,
-        system_path,
         video_stop,
         video_thread,
         mic: mic_recording,
         system: system_recording,
-        started_at: Instant::now(),
-        width: 0,
-        height: 0,
-        fps,
     };
 
     *state.session.lock().unwrap() = Some(session);

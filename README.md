@@ -1,38 +1,120 @@
 # Revate
 
-A local-first, open-source screen recorder and auto-editor that turns raw screen captures into polished, shareable videos — automatically.
+A local-first, open-source screen recorder and auto-editor that transforms raw screen captures into polished, shareable videos automatically.
 
-## Status
+## Overview
 
-**MVP Scaffolding** — This is the initial project structure with placeholder modules. No functionality has been implemented yet.
+Revate helps creators produce clean, engaging videos by automatically editing raw screen captures. It tracks user activity during recording and applies smart zooms, speed ramps, and sound effects to create a polished final product. Everything happens locally without complicated editing software or cloud uploads.
 
-See [RevateMVP.md](./RevateMVP.md) for the full specification.
+## System Architecture
 
-## Project Structure
+```mermaid
+flowchart LR
+  UI["Frontend UI"]
+  Core["Rust Backend"]
+  FileSystem[("Local Storage")]
+  FFmpeg["FFmpeg Encoder"]
 
-- **Frontend**: TypeScript + React + Vite + Tailwind CSS
-- **Backend**: Rust + Tauri 2.x
+  UI --> Core
+  Core --> FileSystem
+  Core --> FFmpeg
 
-## Getting Started
+  style UI fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,color:#fff
+  style Core fill:#2e1065,stroke:#8b5cf6,stroke-width:2px,color:#fff
+  style FileSystem fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#fff
+  style FFmpeg fill:#451a03,stroke:#f59e0b,stroke-width:2px,color:#fff
+```
 
-These commands are listed for reference. The project is not yet fully set up, so these may not work until dependencies are installed and configuration is complete.
+## Features
 
+* **Auto-Zoom**: Automatically zooms into areas of interest based on mouse clicks and dwell time.
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant Tracker as "Input Tracker"
+  participant Engine as "Zoom Engine"
+  participant Compositor
+
+  User->>Tracker: Clicks mouse on screen
+  Tracker->>Engine: Register click coordinates
+  Engine->>Engine: Calculate zoom bounds
+  Engine->>Compositor: Apply zoom transform to frames
+```
+
+* **Activity-Aware Speed Ramping**: Detects idle periods and automatically speeds up the footage to keep viewers engaged.
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant Tracker as "Input Tracker"
+  participant Ramper as "Speed Ramper"
+  participant Encoder
+
+  User->>Tracker: Remains idle for threshold duration
+  Tracker->>Ramper: Flag inactivity period
+  Ramper->>Encoder: Increase playback speed for segment
+  User->>Tracker: Resumes typing or moving mouse
+  Ramper->>Encoder: Restore normal playback speed
+```
+
+* **Smart Redaction**: Allows users to mark sensitive areas during recording to automatically blur them in the final output.
+* **Auto-SFX**: Automatically mixes subtle click and typing sound effects into the final audio track for a more engaging presentation.
+* **Offline First**: All processing runs locally on the machine to guarantee data privacy.
+
+## Installation
+
+Follow these steps to set up the project locally.
+
+Clone the repository:
 ```bash
-# Install dependencies (frontend)
+git clone https://github.com/thevalidcode/Revate.git
+```
+
+Navigate into the project directory:
+```bash
+cd Revate
+```
+
+Install the required dependencies:
+```bash
 pnpm install
+```
 
-# Start development server
+Start the application in development mode:
+```bash
 pnpm tauri dev
+```
 
-# Build for production
+## Usage
+
+Users can start a recording session by selecting their target display and clicking the record button. The application captures screen data, input events, and audio simultaneously. Once the recording is stopped, the editor interface opens automatically to handle the export process.
+
+To build the application for production release, use the following command:
+```bash
 pnpm tauri build
 ```
 
-## Documentation
+## Technologies Used
 
-- [RevateMVP.md](./RevateMVP.md) - Full MVP specification and roadmap
-- [LICENSE](./LICENSE) - MIT License
+| Technology | Description |
+|------------|-------------|
+| [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/) | Type-safe frontend development |
+| [![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://reactjs.org/) | User interface library |
+| [![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/) | High-performance backend engine |
+| [![Tauri](https://img.shields.io/badge/Tauri-FFC131?style=for-the-badge&logo=tauri&logoColor=white)](https://tauri.app/) | Desktop application framework |
+
+## Contributing
+
+Contributions are welcome to help improve the project. Developers can submit pull requests with bug fixes, feature implementations, or documentation updates. Please ensure all new code follows the existing style guidelines and passes standard formatting checks.
 
 ## License
 
-MIT © Revate Contributors
+This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for complete details.
+
+## Author Info
+
+* LinkedIn: [https://linkedin.com/in/thevalidcode](https://linkedin.com/in/thevalidcode)
+* X: [https://x.com/thevalidcode](https://x.com/thevalidcode)
+
+[![Readme was generated by Dokugen](https://img.shields.io/badge/Readme%20was%20generated%20by-Dokugen-brightgreen)](https://dokugen.samueltuoyo.com)

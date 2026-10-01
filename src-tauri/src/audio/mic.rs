@@ -23,8 +23,6 @@ type Writer = WavWriter<std::io::BufWriter<std::fs::File>>;
 pub struct MicRecording {
     stop_flag: Arc<AtomicBool>,
     handle: JoinHandle<Result<PathBuf>>,
-    pub sample_rate: u32,
-    pub channels: u16,
 }
 
 impl MicRecording {
@@ -62,45 +60,39 @@ pub fn start_microphone_capture(
     output: PathBuf,
 ) -> Result<MicRecording> {
     let stop_flag = Arc::new(AtomicBool::new(false));
-    let (init_tx, init_rx) = std::sync::mpsc::channel::<Result<(u32, u16), String>>();
+    let (init_tx, init_rx) = std::sync::mpsc::channel::<Result<(), String>>();
 
     let flag = stop_flag.clone();
     let out = output.clone();
     let handle = std::thread::spawn(move || capture_thread(device_name, &out, flag, &init_tx));
 
-    let (sample_rate, channels) = match init_rx.recv() {
-        Ok(Ok(v)) => v,
+    match init_rx.recv() {
+        Ok(Ok(())) => {}
         Ok(Err(msg)) => {
             let _ = handle.join();
             return Err(anyhow!(msg));
         }
         Err(_) => return Err(anyhow!("microphone thread exited before the stream started")),
-    };
+    }
 
-    Ok(MicRecording {
-        stop_flag,
-        handle,
-        sample_rate,
-        channels,
-    })
+    Ok(MicRecording { stop_flag, handle })
 }
 
 fn capture_thread(
     device_name: Option<String>,
     output: &Path,
     stop: Arc<AtomicBool>,
-    init: &Sender<Result<(u32, u16), String>>,
+    init: &Sender<Result<(), String>>,
 ) -> Result<PathBuf> {
-    let (stream, writer, sample_rate, channels) =
-        match open_stream(device_name, output) {
-            Ok(v) => v,
-            Err(e) => {
-                let _ = init.send(Err(e.to_string()));
-                return Err(e);
-            }
-        };
+    let (stream, writer) = match open_stream(device_name, output) {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = init.send(Err(e.to_string()));
+            return Err(e);
+        }
+    };
 
-    let _ = init.send(Ok((sample_rate, channels)));
+    let _ = init.send(Ok(()));
 
     while !stop.load(Ordering::Relaxed) {
         std::thread::sleep(Duration::from_millis(50));
@@ -119,7 +111,7 @@ fn capture_thread(
 fn open_stream(
     device_name: Option<String>,
     output: &Path,
-) -> Result<(cpal::Stream, Arc<Mutex<Option<Writer>>>, u32, u16)> {
+) -> Result<(cpal::Stream, Arc<Mutex<Option<Writer>>>)> {
     let host = cpal::default_host();
     let device = match device_name.as_deref() {
         Some(name) => host
@@ -162,7 +154,7 @@ fn open_stream(
 
     stream.play().context("failed to start microphone stream")?;
 
-    Ok((stream, writer, config.sample_rate.0, config.channels))
+    Ok((stream, writer))
 }
 
 fn build_stream<T>(

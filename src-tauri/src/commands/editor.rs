@@ -62,16 +62,18 @@ pub fn session_dir(app: &AppHandle, session_id: &str) -> Result<PathBuf, String>
 }
 
 /// The playable video inside a session folder.
+///
+/// Prefers the muxed `final.mp4`, but only when it is actually non-empty: a
+/// failed audio mux leaves a 0-byte file behind, and handing that to the
+/// player would show a broken clip for a perfectly good `raw.mp4`.
 pub fn video_in(dir: &Path) -> Result<PathBuf, String> {
-    let final_mp4 = dir.join("final.mp4");
-    if final_mp4.exists() {
-        return Ok(final_mp4);
-    }
-    let raw = dir.join("raw.mp4");
-    if raw.exists() {
-        return Ok(raw);
-    }
-    Err(format!("no video found in {}", dir.display()))
+    let usable = |path: PathBuf| -> Option<PathBuf> {
+        path.metadata().ok().filter(|m| m.len() > 0).map(|_| path)
+    };
+
+    usable(dir.join("final.mp4"))
+        .or_else(|| usable(dir.join("raw.mp4")))
+        .ok_or_else(|| format!("no playable video found in {}", dir.display()))
 }
 
 #[tauri::command]
@@ -127,10 +129,12 @@ pub async fn make_thumbnail(app: AppHandle, session_id: String) -> Result<String
     Ok(thumb.to_string_lossy().into_owned())
 }
 
-/// Hand the recording over to a fresh editor window and retire the recorder.
-#[tauri::command]
-pub async fn open_editor(app: AppHandle, session_id: String) -> Result<(), String> {
-    let dir = session_dir(&app, &session_id)?;
+/// Create (or focus) the editor window for `session_id`, retiring the recorder.
+///
+/// Shared by the recorder's "hand-off" and the projects window's
+/// "Open in editor" so both produce an identical window.
+pub fn spawn_editor(app: &AppHandle, session_id: &str) -> Result<(), String> {
+    let dir = session_dir(app, session_id)?;
     video_in(&dir)?;
 
     // Only ever one editor.
@@ -139,7 +143,7 @@ pub async fn open_editor(app: AppHandle, session_id: String) -> Result<(), Strin
     }
 
     let url = WebviewUrl::App(format!("index.html?editor=1&session={session_id}").into());
-    let window = WebviewWindowBuilder::new(&app, EDITOR_LABEL, url)
+    let window = WebviewWindowBuilder::new(app, EDITOR_LABEL, url)
         .title("Revate — Editor")
         .inner_size(1000.0, 720.0)
         .min_inner_size(880.0, 620.0)
@@ -159,6 +163,12 @@ pub async fn open_editor(app: AppHandle, session_id: String) -> Result<(), Strin
     let _ = window.set_focus();
 
     Ok(())
+}
+
+/// Hand the recording over to a fresh editor window and retire the recorder.
+#[tauri::command]
+pub async fn open_editor(app: AppHandle, session_id: String) -> Result<(), String> {
+    spawn_editor(&app, &session_id)
 }
 
 /// Go back to the recorder from the editor.

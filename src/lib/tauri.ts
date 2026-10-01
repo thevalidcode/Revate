@@ -7,6 +7,7 @@ import type {
   AudioDevice,
   DisplayRect,
   ExportArgs,
+  ProjectInfo,
   SessionInfo,
   StartRecordingArgs,
   StopResult,
@@ -79,4 +80,24 @@ export const revealInFinder = (path: string) =>
  * Requires `app.security.assetProtocol` in tauri.conf.json.
  */
 export const assetUrl = (path: string) => convertFileSrc(path);
+
+// ---------- Projects library ----------
+
+/** Open (or focus) the standalone projects window. */
+export const openProjectsWindow = () => invoke<void>("open_projects_window");
+
+/** Every session that has a video, newest first. */
+export const listProjects = () => invoke<ProjectInfo[]>("list_projects");
+
+/** Rename a session folder; resolves with the new name. */
+export const renameProject = (id: string, newName: string) =>
+  invoke<string>("rename_project", { id, newName });
+
+/** Permanently delete a session folder. */
+export const deleteProject = (id: string) =>
+  invoke<void>("delete_project", { id });
+
+/** Open a project in the editor window (closes the projects window). */
+export const openProjectInEditor = (id: string) =>
+  invoke<void>("open_project_in_editor", { id });
 

@@ -84,5 +84,34 @@ export interface ExportArgs {
   folder: string;
   fileName: string;
   aspect: AspectId;
+  /**
+   * Custom crop as fractions (0–1) of the source frame. Wins over `aspect`
+   * when present; omit it (or use a full-frame rect) for no crop.
+   */
+  crop?: NormalizedCrop | null;
+}
+
+/** A crop rectangle in normalized 0–1 frame coordinates. */
+export interface NormalizedCrop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Mirror of `commands::projects::ProjectInfo`. */
+export interface ProjectInfo {
+  /** Folder name — the session id used by every other command. */
+  id: string;
+  name: string;
+  path: string;
+  sizeBytes: number;
+  durationMs: number;
+  width: number;
+  height: number;
+  /** Absolute path of an already-extracted poster, if one exists. */
+  thumbPath: string | null;
+  /** Folder mtime in epoch milliseconds (list is ordered newest first). */
+  modifiedMs: number;
 }
 

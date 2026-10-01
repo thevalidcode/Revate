@@ -49,6 +49,12 @@ pub fn run() {
             // Export pipeline.
             commands::export::export_recording,
             commands::export::reveal_in_finder,
+            // Projects library + its window.
+            commands::projects::open_projects_window,
+            commands::projects::list_projects,
+            commands::projects::rename_project,
+            commands::projects::delete_project,
+            commands::projects::open_project_in_editor,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

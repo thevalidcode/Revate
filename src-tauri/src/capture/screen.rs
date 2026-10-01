@@ -116,7 +116,9 @@ pub fn record_loop(cfg: CaptureConfig, stop_flag: Arc<AtomicBool>) -> Result<Pat
     let input = format!("{}:{}", cfg.screen_index, audio_input);
 
     let mut cmd = Command::new("ffmpeg");
-    cmd.args(["-hide_banner", "-loglevel", "info"]);
+    // `-nostats` + `error` level keep the capture silent; failures are caught
+    // through the exit status and surfaced through the Tauri command instead.
+    cmd.args(["-hide_banner", "-nostats", "-loglevel", "error"]);
     cmd.args(["-f", "avfoundation"]);
     cmd.args([
         "-capture_cursor",
@@ -155,9 +157,9 @@ pub fn record_loop(cfg: CaptureConfig, stop_flag: Arc<AtomicBool>) -> Result<Pat
             .context("non-utf8 output path")?,
     ]);
 
-    cmd.stdin(Stdio::piped());     // we write 'q' here to stop
+    cmd.stdin(Stdio::piped()); // we write 'q' here to stop
     cmd.stdout(Stdio::null());
-    cmd.stderr(Stdio::inherit());  // ffmpeg progress prints to the dev terminal
+    cmd.stderr(Stdio::null());
 
     let mut child = cmd
         .spawn()
@@ -177,7 +179,13 @@ pub fn record_loop(cfg: CaptureConfig, stop_flag: Arc<AtomicBool>) -> Result<Pat
 
     let status = child.wait().context("ffmpeg wait failed")?;
     if !status.success() {
-        return Err(anyhow!("ffmpeg exited with status: {status}"));
+        // FFmpeg's own message is suppressed (see the `-loglevel` above), so
+        // spell out the most common cause here instead.
+        return Err(anyhow!(
+            "screen capture failed ({status}) — is Screen Recording enabled for \
+             Revate in System Settings → Privacy & Security? macOS silently \
+             produces an empty stream without it."
+        ));
     }
 
     Ok(cfg.output)

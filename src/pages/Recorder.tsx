@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Circle,
   Crop,
+  FolderOpen,
   Mic,
   Monitor,
   Square,
@@ -34,6 +35,7 @@ import {
   listSystemAudioDevices,
   openDisplayPicker,
   openEditor,
+  openProjectsWindow,
   startRecording,
   stopRecording,
 } from "@/lib/tauri";
@@ -68,7 +70,7 @@ export default function Recorder() {
   // ---------- Audio ----------
   const [mics, setMics] = useState<AudioDevice[]>([]);
   const [selectedMic, setSelectedMic] = useState("");
-  const [micEnabled, setMicEnabled] = useState(true);
+  const [micEnabled, setMicEnabled] = useState(false);
   const [systemDevices, setSystemDevices] = useState<AudioDevice[]>([]);
   const [selectedSystem, setSelectedSystem] = useState("");
   const [systemEnabled, setSystemEnabled] = useState(false);
@@ -221,7 +223,22 @@ export default function Recorder() {
   }, []);
 
   return (
-    <AppShell>
+    <AppShell
+      toolbar={
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={recording}
+          onClick={() =>
+            void openProjectsWindow().catch((error) => toast.error(String(error)))
+          }
+          className="h-7 gap-1.5 rounded-md px-2 text-[12px] font-medium"
+        >
+          <FolderOpen className="size-3.5" />
+          Projects
+        </Button>
+      }
+    >
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex-1 overflow-auto px-6 py-6">
           <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">

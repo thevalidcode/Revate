@@ -61,6 +61,57 @@ fn report(app: &AppHandle, percent: u32, phase: &str) {
     );
 }
 
+/// A crop rectangle expressed as fractions (0–1) of the source frame, so the
+/// frontend can keep it independent of the video's pixel size.
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct NormalizedCrop {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+/// Convert a normalized rect into an FFmpeg `crop=w:h:x:y` filter, clamped to
+/// the source and forced to even dimensions so `yuv420p` stays valid.
+///
+/// Returns `None` for a degenerate or effectively-full rect, which lets the
+/// caller fall back to the aspect-preset filter.
+pub fn crop_filter_from_normalized(crop: NormalizedCrop, w: u32, h: u32) -> Option<String> {
+    // `is_finite` also rejects NaN/Inf, which would survive `clamp` as NaN and
+    // produce a nonsense filter downstream.
+    if w == 0 || h == 0 || !crop.w.is_finite() || !crop.h.is_finite() {
+        return None;
+    }
+    if crop.w <= 0.0 || crop.h <= 0.0 {
+        return None;
+    }
+
+    let clamp01 = |v: f64| v.clamp(0.0, 1.0);
+    let fw = w as f64;
+    let fh = h as f64;
+
+    // Keep the rect anchored inside the frame…
+    let mut x = (clamp01(crop.x) * fw).round() as i64;
+    let mut y = (clamp01(crop.y) * fh).round() as i64;
+    let mut cw = (clamp01(crop.w) * fw).round() as i64;
+    let mut ch = (clamp01(crop.h) * fh).round() as i64;
+
+    // …and never let it spill past the right/bottom edge.
+    cw = cw.clamp(0, fw.round() as i64 - x);
+    ch = ch.clamp(0, fh.round() as i64 - y);
+
+    // yuv420p needs even dimensions.
+    x -= x % 2;
+    y -= y % 2;
+    cw -= cw % 2;
+    ch -= ch % 2;
+
+    if cw < 2 || ch < 2 {
+        return None;
+    }
+    Some(format!("crop={cw}:{ch}:{x}:{y}"))
+}
+
 /// Largest `aspect` box that fits inside `w`×`h`, centred and forced to even
 /// dimensions so `yuv420p` stays valid.
 pub fn crop_filter(aspect: Aspect, w: u32, h: u32) -> Option<String> {
@@ -111,6 +162,9 @@ fn sanitize(name: &str) -> String {
 }
 
 /// Render `session_id` into `<folder>/<file_name>.mp4`, streaming progress.
+///
+/// `crop` (a normalized rect) wins when supplied; otherwise the aspect preset
+/// is used, and a full-frame export applies no crop filter at all.
 #[tauri::command]
 pub async fn export_recording(
     app: AppHandle,
@@ -118,6 +172,7 @@ pub async fn export_recording(
     folder: String,
     file_name: String,
     aspect: Aspect,
+    crop: Option<NormalizedCrop>,
 ) -> Result<String, String> {
     let dir = session_dir(&app, &session_id)?;
     let input = video_in(&dir)?;
@@ -127,7 +182,7 @@ pub async fn export_recording(
         .map_err(|e| format!("could not use {}: {e}", folder.display()))?;
     let output = folder.join(format!("{}.mp4", sanitize(&file_name)));
 
-    tokio::task::spawn_blocking(move || run_export(&app, input, output, aspect))
+    tokio::task::spawn_blocking(move || run_export(&app, input, output, aspect, crop))
         .await
         .map_err(|e| format!("join task failed: {e}"))?
         .map(|path| path.to_string_lossy().into_owned())
@@ -139,6 +194,7 @@ fn run_export(
     input: PathBuf,
     output: PathBuf,
     aspect: Aspect,
+    crop: Option<NormalizedCrop>,
 ) -> Result<PathBuf> {
     let info = ffprobe::probe(&input)?;
     let total_ms = info.duration_ms.max(1);
@@ -156,7 +212,10 @@ fn run_export(
         "-y",
     ]);
     cmd.arg("-i").arg(&input);
-    if let Some(filter) = crop_filter(aspect, info.width, info.height) {
+    let filter = crop
+        .and_then(|rect| crop_filter_from_normalized(rect, info.width, info.height))
+        .or_else(|| crop_filter(aspect, info.width, info.height));
+    if let Some(filter) = filter {
         cmd.args(["-vf", &filter]);
     }
     cmd.args([
@@ -178,7 +237,7 @@ fn run_export(
     cmd.arg(&output);
 
     cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::inherit());
+    cmd.stderr(Stdio::null());
 
     let mut child = cmd.spawn().context("failed to spawn ffmpeg for export")?;
     let stdout = child.stdout.take().context("ffmpeg stdout was not captured")?;

@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Instant;
 
 use anyhow::Result;
 
@@ -11,14 +10,14 @@ use crate::audio::system::SystemAudioRecording;
 
 /// A live recording: the video process plus any audio capture handles.
 /// Everything needed to stop the recording and locate its artifacts.
+///
+/// The audio files are discovered by
+/// [`crate::commands::recording::finish_session`] from the paths returned by
+/// each handle's `stop()`, so they are not stored here.
 pub struct RecordingSession {
     pub project_dir: PathBuf,
+    /// `raw.mp4`, and `final.mp4` once the audio has been muxed in.
     pub video_path: PathBuf,
-    /// 32-bit float WAV written by cpal, if the mic was enabled.
-    pub mic_path: PathBuf,
-    /// 32-bit float WAV written by the second FFmpeg process, if system audio
-    /// was enabled.
-    pub system_path: PathBuf,
 
     /// Signalled to make the video FFmpeg process finalize and exit.
     pub video_stop: Arc<AtomicBool>,
@@ -26,11 +25,6 @@ pub struct RecordingSession {
 
     pub mic: Option<MicRecording>,
     pub system: Option<SystemAudioRecording>,
-
-    pub started_at: Instant,
-    pub width: u32,
-    pub height: u32,
-    pub fps: u32,
 }
 
 #[derive(Default)]

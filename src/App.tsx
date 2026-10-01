@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import DisplayPicker from "./pages/DisplayPicker";
 import Editor from "./pages/Editor";
+import Projects from "./pages/Projects";
 import Recorder from "./pages/Recorder";
 import Settings from "./pages/Settings";
 
@@ -31,6 +32,8 @@ function editorSession(): string | null {
 export default function App() {
   const picker = pickerIndex();
   const session = editorSession();
+  const inProjects =
+    new URLSearchParams(window.location.search).get("projects") === "1";
 
   if (picker !== null) {
     return <DisplayPicker index={picker} />;
@@ -42,6 +45,14 @@ export default function App() {
     return (
       <BrowserRouter>
         <Editor sessionId={session} />
+      </BrowserRouter>
+    );
+  }
+
+  if (inProjects) {
+    return (
+      <BrowserRouter>
+        <Projects />
       </BrowserRouter>
     );
   }

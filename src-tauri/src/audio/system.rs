@@ -31,7 +31,6 @@ const LOOPBACK_HINT: &str = "blackhole";
 pub struct SystemAudioRecording {
     stop_flag: Arc<AtomicBool>,
     handle: JoinHandle<Result<PathBuf>>,
-    pub device_name: String,
 }
 
 impl SystemAudioRecording {
@@ -129,11 +128,7 @@ pub fn start_system_audio_capture(
         Err(_) => return Err(anyhow!("system audio thread exited before ffmpeg started")),
     }
 
-    Ok(SystemAudioRecording {
-        stop_flag,
-        handle,
-        device_name: device_name.to_string(),
-    })
+    Ok(SystemAudioRecording { stop_flag, handle })
 }
 
 fn capture_thread(
@@ -149,7 +144,7 @@ fn capture_thread(
 
     let input = format!(":{index}");
     let mut cmd = Command::new("ffmpeg");
-    cmd.args(["-hide_banner", "-loglevel", "warning"]);
+    cmd.args(["-hide_banner", "-nostats", "-loglevel", "error"]);
     cmd.args(["-f", "avfoundation", "-i", &input]);
     // Float PCM keeps the capture lossless until the final amix encodes AAC.
     cmd.args(["-ac", "2", "-ar", "48000", "-c:a", "pcm_f32le"]);
@@ -159,7 +154,7 @@ fn capture_thread(
     ]);
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::null());
-    cmd.stderr(Stdio::inherit());
+    cmd.stderr(Stdio::null());
 
     let mut child = match cmd.spawn() {
         Ok(c) => c,

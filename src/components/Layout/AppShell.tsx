@@ -12,6 +12,8 @@ export interface AppShellProps {
   label?: ReactNode;
   /** Replaces the default settings gear (used by the editor window). */
   actions?: ReactNode;
+  /** Extra controls rendered *before* the gear, so both stay available. */
+  toolbar?: ReactNode;
 }
 
 /**
@@ -30,7 +32,13 @@ export interface AppShellProps {
  * Contents are deliberately minimal: brand mark + wordmark on the left, one
  * control on the right. No menus, tabs or title text.
  */
-export function AppShell({ children, className, label, actions }: AppShellProps) {
+export function AppShell({
+  children,
+  className,
+  label,
+  actions,
+  toolbar,
+}: AppShellProps) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const onSettings = pathname.startsWith("/settings");
@@ -56,22 +64,25 @@ export function AppShell({ children, className, label, actions }: AppShellProps)
           )}
         </div>
 
-        {actions ?? (
-          <button
-            type="button"
-            aria-label={onSettings ? "Back to recorder" : "Settings"}
-            title={onSettings ? "Back to recorder" : "Settings"}
-            onClick={() => navigate(onSettings ? "/recorder" : "/settings")}
-            className={cn(
-              "grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors",
-              "hover:bg-secondary hover:text-foreground",
-              "focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none",
-              onSettings && "bg-secondary text-foreground",
-            )}
-          >
-            <Settings className="size-3.5" />
-          </button>
-        )}
+        <div data-tauri-drag-region className="flex items-center gap-1.5">
+          {toolbar}
+          {actions ?? (
+            <button
+              type="button"
+              aria-label={onSettings ? "Back to recorder" : "Settings"}
+              title={onSettings ? "Back to recorder" : "Settings"}
+              onClick={() => navigate(onSettings ? "/recorder" : "/settings")}
+              className={cn(
+                "grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors",
+                "hover:bg-secondary hover:text-foreground",
+                "focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none",
+                onSettings && "bg-secondary text-foreground",
+              )}
+            >
+              <Settings className="size-3.5" />
+            </button>
+          )}
+        </div>
       </header>
 
       <main
