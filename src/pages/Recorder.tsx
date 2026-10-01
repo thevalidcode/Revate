@@ -82,6 +82,12 @@ export default function Recorder() {
 
   // ---------- Recording ----------
   const [recording, setRecording] = useState(false);
+  // True from the moment Stop is clicked until the take has been finalized and
+  // the editor window is up. Stopping is not instant (FFmpeg has to close the
+  // file and the audio has to be muxed), and the button stays mounted
+  // throughout — without this guard a second click lands while the first stop is
+  // still in flight.
+  const [stopping, setStopping] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const startedAt = useRef<number | null>(null);
 
@@ -182,6 +188,7 @@ export default function Recorder() {
   }, []);
 
   const start = useCallback(async () => {
+    if (stopping) return;
     startedAt.current = Date.now();
     try {
       await startRecording({
@@ -205,10 +212,17 @@ export default function Recorder() {
     selectedIndex,
     selectedMic,
     selectedSystem,
+    stopping,
     systemEnabled,
   ]);
 
   const stop = useCallback(async () => {
+    // A second click while the first stop is still finalizing would be answered
+    // with "not recording", because the session slot is already taken. The Rust
+    // side coalesces duplicate stops and returns the same answer; this guard just
+    // stops the UI from ever needing that.
+    if (stopping) return;
+    setStopping(true);
     try {
       const result = await stopRecording();
       // Hand the take to a dedicated editor window. That closes this window,
@@ -216,11 +230,12 @@ export default function Recorder() {
       await openEditor(result.id);
     } catch (error) {
       toast.error(String(error));
+      setStopping(false);
       setRecording(false);
       setElapsed(0);
       startedAt.current = null;
     }
-  }, []);
+  }, [stopping]);
 
   return (
     <AppShell
@@ -398,6 +413,10 @@ export default function Recorder() {
           <div className="mx-auto flex max-w-2xl justify-center">
             <Button
               onClick={recording ? stop : start}
+              // Disabled while a stop is finalizing: the button stays visible and
+              // live-looking through that window, and a click landing there is
+              // what produced "not recording".
+              disabled={stopping}
               size="lg"
               className={cn(
                 "h-11 gap-2 rounded-full px-7 text-[13px] font-semibold shadow-lg",
@@ -409,7 +428,7 @@ export default function Recorder() {
               {recording ? (
                 <>
                   <Square className="size-3.5 fill-current" />
-                  Stop · {formatTime(elapsed)}
+                  {stopping ? "Finishing…" : `Stop · ${formatTime(elapsed)}`}
                 </>
               ) : (
                 <>

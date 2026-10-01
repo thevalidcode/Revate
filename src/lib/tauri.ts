@@ -8,6 +8,7 @@ import type {
   DisplayRect,
   ExportArgs,
   ProjectInfo,
+  SessionAnalysis,
   SessionInfo,
   StartRecordingArgs,
   StopResult,
@@ -65,6 +66,15 @@ export const sessionInfo = (sessionId: string) =>
 /** Extract a poster frame; returns "" when one can't be produced. */
 export const makeThumbnail = (sessionId: string) =>
   invoke<string>("make_thumbnail", { sessionId });
+
+/**
+ * Read the take's recorded input trail and plan its auto-zoom segments.
+ *
+ * Returns an empty `zoomSegments` (and `hasCursorTrail: false`) for a take
+ * recorded without input tracking — that is a normal outcome, not an error.
+ */
+export const sessionAnalysis = (sessionId: string) =>
+  invoke<SessionAnalysis>("session_analysis", { sessionId });
 
 // ---------- Export ----------
 

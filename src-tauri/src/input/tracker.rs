@@ -68,6 +68,16 @@ fn slot() -> &'static Mutex<Option<Active>> {
     SLOT.get_or_init(|| Mutex::new(None))
 }
 
+/// Lock-free "a take is recording" gate for the tap callback.
+///
+/// The callback must be able to answer this question *without* touching the
+/// writer mutex. When it checked the flag only after taking the lock, a moving
+/// pointer (the tap fires at the pointer's report rate) kept re-acquiring that
+/// mutex, and [`Tracker::stop`] — which needs it to close the file — was starved
+/// indefinitely. That is what left a stopped take sitting on "Finishing…"
+/// forever: the stop never got to run.
+static RECORDING: AtomicBool = AtomicBool::new(false);
+
 /// Result of the one-time listener start, cached for the process lifetime.
 ///
 /// `rdev::listen` returns nothing and only ever exits by panicking — which is
@@ -161,6 +171,9 @@ impl Tracker {
             last_flush_ms: 0.0,
             dropped: 0,
         });
+        // Opened only once the writer is in place, so the callback can never see
+        // the gate open with nothing to write into.
+        RECORDING.store(true, Ordering::SeqCst);
 
         Ok(Self { stop })
     }
@@ -171,6 +184,11 @@ impl Tracker {
     /// an empty trail is worth knowing about, because it usually means the
     /// permission was never granted.
     pub fn stop(self) -> Result<u64> {
+        // Close the lock-free gate *first*. From here on the tap callback returns
+        // without ever touching the writer mutex, which is what guarantees the
+        // `slot()` lock below can be taken promptly no matter how fast the
+        // pointer is moving.
+        RECORDING.store(false, Ordering::SeqCst);
         self.stop.store(true, Ordering::SeqCst);
 
         let Some(mut active) = slot().lock().unwrap().take() else {
@@ -198,6 +216,17 @@ impl Tracker {
 /// (wall-clock), so we re-stamp against our clock instead — that is what keeps
 /// the trail on the same timeline as the video.
 fn handle_event(event: rdev::Event) {
+    // Cheap rejection first, with no lock. Once a take has stopped there is
+    // nothing to write, and bailing out here is what stops a live pointer from
+    // starving `Tracker::stop` of the writer mutex (see `RECORDING`).
+
+    // Cheap rejection first, with no lock. Once a take has stopped there is
+    // nothing to write, and bailing out here is what stops a live pointer from
+    // starving `Tracker::stop` of the writer mutex (see `RECORDING`).
+    if !RECORDING.load(Ordering::Relaxed) {
+        return;
+    }
+
     // Never let a panic in here kill the tap thread; a poisoned lock is treated
     // as "no recording", which is the safe answer.
     let Ok(mut guard) = slot().lock() else {
@@ -295,10 +324,19 @@ pub fn flush_active() {
     }
 }
 
+/// Serialises the tests that drive the process-wide listener state.
+///
+/// `RECORDING` and the writer `slot()` are global by design (the tap thread is a
+/// process-lifetime singleton), so tests that install a writer have to take turns
+/// — otherwise they race each other and report phantom passes or failures.
+#[cfg(test)]
+static LISTENER_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::utils::clock::Clock;
+    use std::time::Instant;
 
     /// A throwaway `Active` whose writer goes to the void, so the pure
     /// translation step can be tested without touching the OS listener.
@@ -355,5 +393,94 @@ mod tests {
         assert_eq!(button_name(rdev::Button::Left), MouseButtonName::Left);
         assert_eq!(button_name(rdev::Button::Middle), MouseButtonName::Middle);
         assert_eq!(button_name(rdev::Button::Unknown(9)), MouseButtonName::Unknown);
+    }
+
+    /// The regression that left a stopped take hanging on "Finishing…".
+    ///
+    /// The tap callback used to take the writer mutex before checking whether a
+    /// take was still running, so a moving pointer kept re-acquiring it and
+    /// starved `Tracker::stop` of the lock it needs to close the file. Holding
+    /// the lock here reproduces the contention; the callback must still return
+    /// promptly because it rejects on the lock-free gate.
+    #[test]
+    fn the_tap_callback_never_contends_for_the_writer_lock_when_idle() {
+        let _serialised = LISTENER_TEST_LOCK.lock().unwrap();
+        RECORDING.store(false, Ordering::SeqCst);
+
+        // Hold the writer lock for the duration, as a busy callback would.
+        let held = slot().lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            for _ in 0..100 {
+                handle_event(rdev::Event {
+                    time: std::time::SystemTime::now(),
+                    name: None,
+                    event_type: rdev::EventType::MouseMove { x: 1.0, y: 2.0 },
+                });
+            }
+            let _ = tx.send(());
+        });
+
+        let returned = rx.recv_timeout(Duration::from_secs(5)).is_ok();
+        drop(held);
+        assert!(
+            returned,
+            "the tap callback blocked on the writer lock when no take was running"
+        );
+    }
+
+    /// `stop` must be able to take the writer lock promptly, and must leave the
+    /// gate closed afterwards so the callback stays out of the way.
+    #[test]
+    fn stopping_closes_the_gate_and_releases_the_writer() {
+        let _serialised = LISTENER_TEST_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("revate-tracker-stop-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Install a writer by hand rather than via `Tracker::start`, which would
+        // need a live OS event tap.
+        let stop = Arc::new(AtomicBool::new(false));
+        *slot().lock().unwrap() = Some(Active {
+            stop: stop.clone(),
+            clock: Arc::new(Clock::start()),
+            writer: EventWriter::create(&dir.join(EVENTS_FILE)).unwrap(),
+            last: ScreenPoint { x: 0.0, y: 0.0 },
+            last_sample_ms: f64::NEG_INFINITY,
+            last_flush_ms: 0.0,
+            dropped: 0,
+        });
+        RECORDING.store(true, Ordering::SeqCst);
+
+        // A realistic stop: the tap thread is hammering the callback the whole
+        // time, exactly as it is during a real take with a moving pointer.
+        let tapping = {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    handle_event(rdev::Event {
+                        time: std::time::SystemTime::now(),
+                        name: None,
+                        event_type: rdev::EventType::MouseMove { x: 5.0, y: 5.0 },
+                    });
+                }
+            })
+        };
+
+        let started = Instant::now();
+        stop.store(true, Ordering::SeqCst);
+        RECORDING.store(false, Ordering::SeqCst);
+        let taken = slot().lock().unwrap().take();
+        let elapsed = started.elapsed();
+
+        tapping.join().unwrap();
+        assert!(taken.is_some(), "the writer should have been taken");
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "taking the writer took {elapsed:?} — the tap is starving the stop"
+        );
+        assert!(!RECORDING.load(Ordering::SeqCst), "the gate must be closed");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -35,10 +35,16 @@ import {
   makeThumbnail,
   newRecording,
   revealInFinder,
+  sessionAnalysis,
   sessionInfo,
 } from "@/lib/tauri";
 import { EXPORT_PROGRESS_EVENT } from "@/types/events";
-import type { AspectId, ExportProgress, SessionInfo } from "@/types/events";
+import type {
+  AspectId,
+  ExportProgress,
+  SessionAnalysis,
+  SessionInfo,
+} from "@/types/events";
 
 /** Crop presets. `ratio` doubles as the little preview glyph's shape. */
 const ASPECTS: { id: AspectId; label: string; ratio: number | null }[] = [
@@ -103,6 +109,8 @@ export default function Editor({ sessionId }: { sessionId: string }) {
   const stage = useElementSize(stageRef);
   const [playing, setPlaying] = useState(false);
   const [hovering, setHovering] = useState(false);
+  /** The take's recorded trail + planned zooms, or null when it has none. */
+  const [analysis, setAnalysis] = useState<SessionAnalysis | null>(null);
 
   // ---------- Initial load ----------
   useEffect(() => {
@@ -120,6 +128,18 @@ export default function Editor({ sessionId }: { sessionId: string }) {
         setFolder(meta.defaultFolder);
       } catch (error) {
         if (!cancelled) setLoadError(String(error));
+      }
+
+      // The cursor trail is optional: a take recorded without input tracking has
+      // none, and that must not turn into an error banner over a perfectly good
+      // recording. Read it separately so it can only ever add information.
+      try {
+        const result = await sessionAnalysis(sessionId);
+        if (!cancelled) setAnalysis(result);
+      } catch {
+        // No trail, or no `capture.json` to map it with — the editor simply shows
+        // the video as recorded.
+        if (!cancelled) setAnalysis(null);
       }
     })();
 
@@ -423,6 +443,20 @@ export default function Editor({ sessionId }: { sessionId: string }) {
             {info
               ? `${info.width}×${info.height} · ${formatDuration(info.durationMs)} · ${info.hasAudio ? "Audio" : "No audio"}`
               : "—"}
+            {/* What the recorded input trail yielded, so a missing trail is visible
+                rather than a silent no-op. */}
+            {analysis && (
+              <span className="ml-2">
+                ·{" "}
+                {analysis.hasCursorTrail
+                  ? `Cursor trail: ${analysis.eventCount} events · ${analysis.zoomSegments.length} zoom${
+                      analysis.zoomSegments.length === 1 ? "" : "s"
+                    }`
+                  : analysis.cursorBakedIn
+                    ? "No cursor trail (Accessibility permission needed)"
+                    : "No cursor trail"}
+              </span>
+            )}
           </div>
         </section>
 

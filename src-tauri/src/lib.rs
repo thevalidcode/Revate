@@ -55,6 +55,8 @@ pub fn run() {
             commands::editor::new_recording,
             commands::editor::session_info,
             commands::editor::make_thumbnail,
+            // Cursor trail + auto-zoom analysis.
+            commands::analysis::session_analysis,
             // Export pipeline.
             commands::export::export_recording,
             commands::export::reveal_in_finder,

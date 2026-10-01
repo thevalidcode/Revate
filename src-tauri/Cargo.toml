@@ -28,6 +28,11 @@ serde_json = "1"
 thiserror = "1"
 anyhow = "1"
 
+# Signals. Used to ask FFmpeg to finalize a capture (SIGINT is FFmpeg's graceful
+# quit, and unlike `q` on stdin it cannot be lost). Already in the tree through
+# rdev/tokio — declaring it directly keeps the dependency honest.
+libc = "0.2"
+
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 

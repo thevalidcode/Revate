@@ -50,6 +50,47 @@ export interface StopResult {
   id: string;
   projectDir: string;
   videoPath: string;
+  /**
+   * Events written to `events.revents`; `0` when input tracking was unavailable
+   * (Accessibility permission refused, or the enhanced cursor was switched off).
+   */
+  eventsRecorded: number;
+}
+
+/** Why the planner created a zoom segment. */
+export type SegmentReason = "click" | "dwell";
+
+/** Mirror of `commands::analysis::SegmentInfo`. */
+export interface ZoomSegmentInfo {
+  /** Seconds from the start of the take. */
+  startT: number;
+  endT: number;
+  /** Focus point, in video pixels. */
+  x: number;
+  y: number;
+  /** 1.0 is the full frame; higher is more zoomed in. */
+  zoomLevel: number;
+  reason: SegmentReason;
+}
+
+/**
+ * Mirror of `commands::analysis::SessionAnalysis` — the take's recorded input
+ * trail, resolved into video-pixel space.
+ *
+ * A take with no trail yields `hasCursorTrail: false` and an empty
+ * `zoomSegments`; that is a normal outcome, not a failure.
+ */
+export interface SessionAnalysis {
+  hasCursorTrail: boolean;
+  /** True when FFmpeg burned the system cursor in, so ours must not be drawn. */
+  cursorBakedIn: boolean;
+  eventCount: number;
+  skipped: number;
+  width: number;
+  height: number;
+  durationMs: number;
+  clickCount: number;
+  zoomSegments: ZoomSegmentInfo[];
 }
 
 /** Mirror of `commands::editor::SessionInfo`. */
