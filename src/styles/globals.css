@@ -207,6 +207,28 @@ body {
   font-size: 13px;
 }
 
+/* ---------- Celebration / progress keyframes ---------- */
+
+/*
+ * Sparkle particles for CircularProgress. Each particle supplies its own
+ * `--sx` / `--sy` offset (see CircularProgress.tsx) so a single animation
+ * serves the whole burst.
+ */
+@keyframes revate-sparkle {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.2);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy)))
+      scale(0);
+  }
+}
+
 html {
   font-family:
     "Sansation",

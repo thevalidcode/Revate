@@ -8,6 +8,10 @@ import { cn } from "@/lib/utils";
 export interface AppShellProps {
   children: ReactNode;
   className?: string;
+  /** Optional caption after the wordmark, e.g. the file being edited. */
+  label?: ReactNode;
+  /** Replaces the default settings gear (used by the editor window). */
+  actions?: ReactNode;
 }
 
 /**
@@ -24,9 +28,9 @@ export interface AppShellProps {
  * without it and therefore keeps its normal click behaviour.
  *
  * Contents are deliberately minimal: brand mark + wordmark on the left, one
- * settings gear on the right. No menus, tabs or title text.
+ * control on the right. No menus, tabs or title text.
  */
-export function AppShell({ children, className }: AppShellProps) {
+export function AppShell({ children, className, label, actions }: AppShellProps) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const onSettings = pathname.startsWith("/settings");
@@ -35,9 +39,9 @@ export function AppShell({ children, className }: AppShellProps) {
     <div className="flex h-screen flex-col overflow-hidden bg-background text-[13px] text-foreground">
       <header
         data-tauri-drag-region
-        className="flex h-10 shrink-0 items-center justify-between border-b border-border pr-1.5 pl-[78px] select-none"
+        className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border pr-1.5 pl-[78px] select-none"
       >
-        <div data-tauri-drag-region className="flex items-center gap-2">
+        <div data-tauri-drag-region className="flex min-w-0 items-center gap-2">
           <Logo size={20} />
           <span
             data-tauri-drag-region
@@ -45,22 +49,29 @@ export function AppShell({ children, className }: AppShellProps) {
           >
             Revate
           </span>
+          {label && (
+            <span className="truncate text-[12px] leading-none text-muted-foreground">
+              {label}
+            </span>
+          )}
         </div>
 
-        <button
-          type="button"
-          aria-label={onSettings ? "Back to recorder" : "Settings"}
-          title={onSettings ? "Back to recorder" : "Settings"}
-          onClick={() => navigate(onSettings ? "/recorder" : "/settings")}
-          className={cn(
-            "grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors",
-            "hover:bg-secondary hover:text-foreground",
-            "focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none",
-            onSettings && "bg-secondary text-foreground",
-          )}
-        >
-          <Settings className="size-3.5" />
-        </button>
+        {actions ?? (
+          <button
+            type="button"
+            aria-label={onSettings ? "Back to recorder" : "Settings"}
+            title={onSettings ? "Back to recorder" : "Settings"}
+            onClick={() => navigate(onSettings ? "/recorder" : "/settings")}
+            className={cn(
+              "grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors",
+              "hover:bg-secondary hover:text-foreground",
+              "focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none",
+              onSettings && "bg-secondary text-foreground",
+            )}
+          >
+            <Settings className="size-3.5" />
+          </button>
+        )}
       </header>
 
       <main

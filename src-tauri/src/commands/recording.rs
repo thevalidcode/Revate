@@ -161,19 +161,42 @@ pub async fn start_recording(
     Ok(project_dir.to_string_lossy().into_owned())
 }
 
+/// What `stop_recording` hands back: enough for the frontend to open the right
+/// editor session without putting an absolute path in a URL.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopResult {
+    /// Folder name under `projects/` — the editor's `?session=` id.
+    pub id: String,
+    pub project_dir: String,
+    pub video_path: String,
+}
+
 /// Stop the current recording, join every capture thread and mux the audio
-/// tracks back onto the video. Returns the path of the resulting file.
+/// tracks back onto the video.
 #[tauri::command]
-pub async fn stop_recording(state: State<'_, RecordingState>) -> Result<String, String> {
+pub async fn stop_recording(state: State<'_, RecordingState>) -> Result<StopResult, String> {
     let session = { state.session.lock().unwrap().take() };
     let session = session.ok_or_else(|| "not recording".to_string())?;
 
-    let path = tokio::task::spawn_blocking(move || finish_session(session))
+    let video = tokio::task::spawn_blocking(move || finish_session(session))
         .await
         .map_err(|e| format!("join task failed: {e}"))?
         .map_err(|e| e.to_string())?;
 
-    Ok(path.to_string_lossy().into_owned())
+    // `finish_session` always returns a file inside the session folder
+    // (`raw.mp4` or the muxed `final.mp4`).
+    let project_dir = video.parent().unwrap_or(Path::new("")).to_path_buf();
+    let id = project_dir
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    Ok(StopResult {
+        id,
+        project_dir: project_dir.to_string_lossy().into_owned(),
+        video_path: video.to_string_lossy().into_owned(),
+    })
 }
 
 #[tauri::command]
@@ -245,6 +268,7 @@ fn finish_session(session: RecordingSession) -> anyhow::Result<PathBuf> {
         Ok(path) => Ok(path),
         Err(e) => {
             // Keep the separate files around rather than losing the take.
+            eprintln!("[recording] mux failed, keeping raw tracks: {e}");
             Ok(video)
         }
     }

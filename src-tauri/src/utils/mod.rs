@@ -6,3 +6,4 @@ pub mod clock;
 pub mod paths;
 pub mod logging;
 pub mod errors;
+pub mod ffprobe;

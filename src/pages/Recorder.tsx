@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
-  Check,
   ChevronRight,
   Circle,
   Crop,
@@ -34,6 +33,7 @@ import {
   listDisplayRects,
   listSystemAudioDevices,
   openDisplayPicker,
+  openEditor,
   startRecording,
   stopRecording,
 } from "@/lib/tauri";
@@ -81,7 +81,6 @@ export default function Recorder() {
   // ---------- Recording ----------
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [savedTo, setSavedTo] = useState<string | null>(null);
   const startedAt = useRef<number | null>(null);
 
   // ---------- Load devices on mount (Rust may not be reachable in a plain
@@ -193,7 +192,6 @@ export default function Recorder() {
       });
       setRecording(true);
       setElapsed(0);
-      setSavedTo(null);
       toast.success("Recording started");
     } catch (error) {
       startedAt.current = null;
@@ -210,12 +208,12 @@ export default function Recorder() {
 
   const stop = useCallback(async () => {
     try {
-      const path = await stopRecording();
-      setSavedTo(path);
-      toast.success("Saved");
+      const result = await stopRecording();
+      // Hand the take to a dedicated editor window. That closes this window,
+      // so there is no post-stop state left to render here.
+      await openEditor(result.id);
     } catch (error) {
       toast.error(String(error));
-    } finally {
       setRecording(false);
       setElapsed(0);
       startedAt.current = null;
@@ -375,19 +373,6 @@ export default function Recorder() {
                 </div>
               </Row>
             </Card>
-
-            {/* Saved confirmation ------------------------------------- */}
-            {savedTo && (
-              <div className="flex items-start gap-2.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3">
-                <Check className="mt-0.5 size-4 shrink-0 text-emerald-400" />
-                <div className="min-w-0">
-                  <p className="text-[12px] font-medium text-emerald-400">Saved</p>
-                  <code className="text-[11px] break-all text-emerald-400/70">
-                    {savedTo}
-                  </code>
-                </div>
-              </div>
-            )}
           </div>
         </div>
 

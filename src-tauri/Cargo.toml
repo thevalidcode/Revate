@@ -18,7 +18,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # Tauri 2.x core framework
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2", features = ["protocol-asset", "macos-private-api"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -45,6 +45,7 @@ hound = "3.5"
 # ffmpeg-sidecar: FFmpeg binary management
 ffmpeg-sidecar = "0.1.0"
 chrono = "0.4.45"
+tauri-plugin-dialog = "2.8.1"
 
 [profile.release]
 strip = true

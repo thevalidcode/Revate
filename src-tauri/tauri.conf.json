@@ -18,7 +18,7 @@
         "title": "Revate",
         "width": 720,
         "height": 880,
-        "minWidth": 900,
+        "minWidth": 720,
         "minHeight": 620,
         "resizable": true,
         "fullscreen": false,
@@ -29,7 +29,11 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/**"]
+      }
     }
   },
   "bundle": {

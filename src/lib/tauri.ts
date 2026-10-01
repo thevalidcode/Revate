@@ -1,12 +1,15 @@
 // Typed wrappers around the Rust commands registered in `src-tauri/src/lib.rs`.
 // Keeping them in one place means the UI never has to remember command names or
 // argument casing (Tauri maps camelCase JS keys onto snake_case Rust params).
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 import type {
   AudioDevice,
   DisplayRect,
+  ExportArgs,
+  SessionInfo,
   StartRecordingArgs,
+  StopResult,
 } from "@/types/events";
 
 // ---------- Displays ----------
@@ -38,11 +41,42 @@ export const listSystemAudioDevices = () =>
 export const startRecording = (args: StartRecordingArgs) =>
   invoke<string>("start_recording", { ...args });
 
-export const stopRecording = () => invoke<string>("stop_recording");
+export const stopRecording = () => invoke<StopResult>("stop_recording");
 
 export const isRecording = () => invoke<boolean>("is_recording");
 
 /** Re-mux an existing project folder into `final.mp4`. */
 export const muxRecording = (projectDir: string) =>
   invoke<string>("mux_recording", { projectDir });
+
+// ---------- Editor window ----------
+
+/** Close the recorder and hand `sessionId` to a fresh editor window. */
+export const openEditor = (sessionId: string) =>
+  invoke<void>("open_editor", { sessionId });
+
+/** Reopen the recorder and retire the editor window. */
+export const newRecording = () => invoke<void>("new_recording");
+
+export const sessionInfo = (sessionId: string) =>
+  invoke<SessionInfo>("session_info", { sessionId });
+
+/** Extract a poster frame; returns "" when one can't be produced. */
+export const makeThumbnail = (sessionId: string) =>
+  invoke<string>("make_thumbnail", { sessionId });
+
+// ---------- Export ----------
+
+export const exportRecording = (args: ExportArgs) =>
+  invoke<string>("export_recording", { ...args });
+
+/** Select the saved file in Finder. */
+export const revealInFinder = (path: string) =>
+  invoke<void>("reveal_in_finder", { path });
+
+/**
+ * Turn an absolute path on disk into a URL the webview is allowed to load.
+ * Requires `app.security.assetProtocol` in tauri.conf.json.
+ */
+export const assetUrl = (path: string) => convertFileSrc(path);
 
