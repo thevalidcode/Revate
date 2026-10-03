@@ -23,14 +23,18 @@ import {
   isFullFrame,
 } from "@/components/editor/CropOverlay";
 import type { CropRect } from "@/components/editor/CropOverlay";
+import { EffectsOverlay } from "@/components/editor/EffectsOverlay";
 import { Button } from "@/components/ui/button";
 import { CircularProgress } from "@/components/ui/CircularProgress";
 import { Label } from "@/components/ui/label";
 import { Toaster } from "@/components/ui/sonner";
-import { useElementSize } from "@/hooks";
+import { Switch } from "@/components/ui/switch";
+import { useElementSize, usePlaybackTime } from "@/hooks";
+import { DEFAULT_OPTIONS, sanitizeOptions } from "@/lib/effects";
 import { cn } from "@/lib/utils";
 import {
   assetUrl,
+  cursorAsset,
   exportRecording,
   makeThumbnail,
   newRecording,
@@ -42,6 +46,7 @@ import { EXPORT_PROGRESS_EVENT } from "@/types/events";
 import type {
   AspectId,
   ExportProgress,
+  OverlayOptions,
   SessionAnalysis,
   SessionInfo,
 } from "@/types/events";
@@ -107,9 +112,29 @@ export default function Editor({ sessionId }: { sessionId: string }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const stage = useElementSize(stageRef);
+/**
+   * The effect settings the user can bend. Sent to both `session_analysis` and
+   * `export_recording`, so the preview and the saved file are resolved from one
+   * set of values rather than two that can drift apart.
+   */
+  const [options, setOptions] = useState<OverlayOptions>(DEFAULT_OPTIONS);
+  /** The cursor image as a data URL, the same bytes the export composites. */
+  const [cursorImage, setCursorImage] = useState<string | null>(null);
+
+  const setOption = useCallback(
+    <K extends keyof OverlayOptions>(key: K, value: OverlayOptions[K]) =>
+      setOptions((prev) => ({ ...prev, [key]: value })),
+    [],
+  );
+
+  // ---------- Preview ----------
   const [playing, setPlaying] = useState(false);
   const [hovering, setHovering] = useState(false);
   /** The take's recorded trail + planned zooms, or null when it has none. */
+/** Playback position, sampled per animation frame — drives the effects layers. */
+  const playTime = usePlaybackTime(videoRef);
+
+  // ---------- Initial load ----------
   const [analysis, setAnalysis] = useState<SessionAnalysis | null>(null);
 
   // ---------- Initial load ----------
@@ -133,20 +158,43 @@ export default function Editor({ sessionId }: { sessionId: string }) {
       // The cursor trail is optional: a take recorded without input tracking has
       // none, and that must not turn into an error banner over a perfectly good
       // recording. Read it separately so it can only ever add information.
-      try {
-        const result = await sessionAnalysis(sessionId);
-        if (!cancelled) setAnalysis(result);
-      } catch {
-        // No trail, or no `capture.json` to map it with — the editor simply shows
-        // the video as recorded.
-        if (!cancelled) setAnalysis(null);
-      }
+      void cursorAsset()
+        .then((url) => {
+          if (!cancelled) setCursorImage(url);
+        })
+        .catch(() => {
+          // No preview cursor; the export embeds its own copy regardless.
+        });
     })();
 
     return () => {
       cancelled = true;
     };
   }, [sessionId]);
+
+  // ---------- Re-resolve the effects table when a slider moves ----------
+  //
+  // The table is not computed in the webview: Rust resolves it, because the
+  // export has to reproduce it exactly. Moving a slider therefore re-asks for the
+  // table rather than nudging it locally, which is what keeps the preview and the
+  // file from disagreeing about where the zoom goes.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await sessionAnalysis(
+          sessionId,
+          sanitizeOptions(options),
+        );
+        if (!cancelled) setAnalysis(result);
+      } catch {
+        if (!cancelled) setAnalysis(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [options, sessionId]);
 
   // ---------- Export progress, pushed from Rust ----------
   useEffect(() => {
@@ -231,6 +279,23 @@ export default function Editor({ sessionId }: { sessionId: string }) {
     return `${w}×${h}`;
   }, [crop, info]);
 
+/**
+   * The visible box in **video** pixels — the same rectangle the export crops to,
+   * so the effects rows (also in video pixels) can be drawn against it directly
+   * instead of being converted first.
+   */
+  const effectBounds = useMemo(() => {
+    if (!info) return null;
+    const rect = previewCrop ?? FULL_FRAME;
+    return {
+      x: rect.x * info.width,
+      y: rect.y * info.height,
+      width: rect.w * info.width,
+      height: rect.h * info.height,
+    };
+  }, [info, previewCrop]);
+
+  /** Ratio actively held while resizing: the lock, or the source frame. */
   /** Ratio actively held while resizing: the lock, or the source frame. */
   const effectiveLock = locked
     ? (lockRatio ?? (info ? info.width / info.height : null))
@@ -314,6 +379,10 @@ export default function Editor({ sessionId }: { sessionId: string }) {
         aspect,
         // A full-frame rect means "no crop", which lets the preset decide.
         crop: isFullFrame(crop) ? null : crop,
+        // The settings the user just approved on screen. The export re-resolves
+        // the effects table from these, so the file matches the preview rather
+        // than falling back to whatever the defaults happen to be.
+        options: sanitizeOptions(options),
       });
       toast.success(`✨ Saved to ${baseName(saved)}`, { duration: 4000 });
     } catch (error) {
@@ -327,7 +396,7 @@ export default function Editor({ sessionId }: { sessionId: string }) {
 
     // Let the ring sit at 100% long enough for the sparkle burst to read.
     window.setTimeout(() => setExporting(false), saved ? 900 : 0);
-  }, [aspect, crop, folder, info, name, sessionId]);
+  }, [aspect, crop, folder, info, name, options, sessionId]);
 
   const busy = exporting || loading;
   const canExport = Boolean(info && folder && name.trim());
@@ -396,27 +465,48 @@ export default function Editor({ sessionId }: { sessionId: string }) {
                     caps replaced elements at `max-width: 100%`, which would
                     otherwise squash the video into the (smaller) box.
                   */}
-                    <video
-                      ref={videoRef}
-                      src={assetUrl(info.videoPath)}
-                      poster={thumb ? assetUrl(thumb) : undefined}
-                      preload="metadata"
-                      playsInline
-                      onClick={() => {
-                        // In custom mode the overlay owns the pointer, so a
-                        // click on the frame means a drag, not a seek.
-                        if (!custom) togglePlay();
-                      }}
-                      onPlay={() => setPlaying(true)}
-                      onPause={() => setPlaying(false)}
-                      className="absolute max-w-none object-contain"
-                      style={{
-                        left: videoOffset.left,
-                        top: videoOffset.top,
-                        width: videoBox.width,
-                        height: videoBox.height,
-                      }}
-                    />
+                    {/*
+                    The zoom's crop is a clip-path on a wrapper around the video
+                    rather than a transform on it: the video has to keep its own
+                    full-frame box, because the crop overlay's handles and the
+                    full-frame layout are both expressed against it.
+
+                    The wrapper is `inset: 0` on the visible box, so its percentages
+                    are relative to exactly the rectangle the export crops to.
+                  */}
+                    <EffectsOverlay
+                      rows={analysis?.rows ?? []}
+                      time={playTime}
+                      bounds={effectBounds ?? { x: 0, y: 0, width: 0, height: 0 }}
+                      boxWidth={frame.width}
+                      boxHeight={frame.height}
+                      options={options}
+                      sprite={cursorImage}
+                      spriteInfo={analysis?.cursorSprite ?? null}
+                      hideCursor={analysis?.cursorBakedIn ?? false}
+                    >
+                      <video
+                        ref={videoRef}
+                        src={assetUrl(info.videoPath)}
+                        poster={thumb ? assetUrl(thumb) : undefined}
+                        preload="metadata"
+                        playsInline
+                        onClick={() => {
+                          // In custom mode the overlay owns the pointer, so a
+                          // click on the frame means a drag, not a seek.
+                          if (!custom) togglePlay();
+                        }}
+                        onPlay={() => setPlaying(true)}
+                        onPause={() => setPlaying(false)}
+                        className="absolute max-w-none object-contain"
+                        style={{
+                          left: videoOffset.left,
+                          top: videoOffset.top,
+                          width: videoBox.width,
+                          height: videoBox.height,
+                        }}
+                      />
+                    </EffectsOverlay>
 
                     {/* Mask, thirds guides and the eight handles — custom only. */}
                     {custom && (
@@ -564,6 +654,97 @@ export default function Editor({ sessionId }: { sessionId: string }) {
             )}
           </div>
 
+          {/*
+              Effects. These are the sliders the whole feature exists for: the
+              preview redraws from the re-resolved table as they move, and the
+              same values travel with the export. Nothing here touches the
+              recording.
+            */}
+            <div className="border-b border-border px-3.5 py-3">
+              <Label className="text-[12px] font-medium">Effects</Label>
+
+              {/* A take with no trail has nothing to preview, so the panel says so
+                  rather than offering sliders that would silently do nothing. */}
+              {!analysis?.hasCursorTrail ? (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  {analysis?.cursorBakedIn
+                    ? "This recording has no cursor trail, so the cursor and auto-zoom are unavailable."
+                    : "No cursor trail was recorded for this take, so there is nothing to overlay."}
+                </p>
+              ) : (
+                <>
+                  <div className="mt-2 space-y-2">
+                    <SwitchRow
+                      label="Auto-zoom"
+                      hint={`${analysis.zoomSegments.length} focus point${analysis.zoomSegments.length === 1 ? "" : "s"}`}
+                      checked={options.zoom}
+                      disabled={busy}
+                      onChange={(v) => setOption("zoom", v)}
+                    />
+                    <SwitchRow
+                      label="Cursor"
+                      hint={analysis.cursorBakedIn ? "already in the video" : undefined}
+                      checked={options.cursor && !analysis.cursorBakedIn}
+                      disabled={busy || analysis.cursorBakedIn}
+                      onChange={(v) => setOption("cursor", v)}
+                    />
+                  </div>
+
+                  {/* The ranges mirror Rust's `sanitized()` exactly; a slider that
+                      could send a value Rust would silently clamp would be a
+                      slider lying to the user. */}
+                  {options.zoom && (
+                    <Slider
+                      label="Zoom strength"
+                      value={options.zoomStrength}
+                      min={1}
+                      max={2.5}
+                      step={0.05}
+                      format={(v) => `${v.toFixed(2)}×`}
+                      disabled={busy}
+                      onChange={(v) => setOption("zoomStrength", v)}
+                    />
+                  )}
+                  {options.zoom && (
+                    <Slider
+                      label="Edge snap"
+                      value={options.zoomEdgeSnap}
+                      min={0}
+                      max={0.5}
+                      step={0.01}
+                      format={(v) => v.toFixed(2)}
+                      disabled={busy}
+                      onChange={(v) => setOption("zoomEdgeSnap", v)}
+                    />
+                  )}
+                  {options.cursor && !analysis.cursorBakedIn && (
+                    <Slider
+                      label="Cursor size"
+                      value={options.cursorScale}
+                      min={0.25}
+                      max={3}
+                      step={0.05}
+                      format={(v) => `${v.toFixed(2)}×`}
+                      disabled={busy}
+                      onChange={(v) => setOption("cursorScale", v)}
+                    />
+                  )}
+                  {options.cursor && !analysis.cursorBakedIn && (
+                    <Slider
+                      label="Cursor smoothing"
+                      value={options.cursorSmoothing}
+                      min={4}
+                      max={48}
+                      step={1}
+                      format={(v) => `${v.toFixed(0)} rad/s`}
+                      disabled={busy}
+                      onChange={(v) => setOption("cursorSmoothing", v)}
+                    />
+                  )}
+                </>
+              )}
+            </div>
+
           {/* Save */}
           <div className="px-3.5 py-3">
             <Label htmlFor="editor-name" className="text-[12px] font-medium">
@@ -642,6 +823,95 @@ export default function Editor({ sessionId }: { sessionId: string }) {
  * is hidden it is also unclickable, so it never swallows a click meant for the
  * video underneath.
  */
+/**
+ * A labelled on/off row for one effects layer.
+ *
+ * The optional `hint` carries why a switch is unavailable or what it is doing —
+ * a disabled cursor with no explanation just looks broken.
+ */
+function SwitchRow({
+  label,
+  hint,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex items-center gap-2 text-[12px]",
+        disabled ? "opacity-60" : "cursor-pointer",
+      )}
+    >
+      <Switch
+        size="sm"
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onChange}
+      />
+      <span className="font-medium">{label}</span>
+      {hint && (
+        <span className="ml-auto text-[10px] text-muted-foreground">{hint}</span>
+      )}
+    </label>
+  );
+}
+
+/**
+ * One bounded numeric effect setting.
+ *
+ * `min`/`max` are not decoration: they are the range Rust's `sanitized()` clamps
+ * to, and a slider that could emit a value the export would silently clamp would
+ * be telling the user one thing and saving another.
+ */
+function Slider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  format,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format: (value: number) => string;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className={cn("mt-2.5", disabled && "opacity-60")}>
+      <div className="flex items-baseline justify-between">
+        <span className="text-[11px] font-medium">{label}</span>
+        <span className="text-[10px] tabular-nums text-muted-foreground">
+          {format(value)}
+        </span>
+      </div>
+      <input
+        type="range"
+        aria-label={label}
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        disabled={disabled}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="mt-1 h-1 w-full cursor-pointer appearance-none rounded-full bg-input accent-[#8B5CF6] disabled:cursor-not-allowed"
+      />
+    </div>
+  );
+}
+
 function PlayPauseButton({
   playing,
   visible,

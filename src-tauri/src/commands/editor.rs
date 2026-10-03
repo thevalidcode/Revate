@@ -13,6 +13,7 @@ use std::process::{Command, Stdio};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
 
+use crate::effects;
 use crate::utils::{ffprobe, paths};
 
 /// Emitted on the editor window while an export runs: `{ percent, phase }`.
@@ -129,6 +130,51 @@ pub async fn make_thumbnail(app: AppHandle, session_id: String) -> Result<String
     Ok(thumb.to_string_lossy().into_owned())
 }
 
+/// The cursor image as a `data:` URL, for the editor's preview.
+///
+/// The PNG is embedded in the binary, so the preview and the export draw the very
+/// same pixels — and the same hotspot, which `effects` measures from the same
+/// constants. A data URL rather than a file path because the webview's asset
+/// protocol is scoped to the app's data directory, where this asset does not
+/// live, and writing it out per session would leave litter behind.
+#[tauri::command]
+pub fn cursor_asset() -> String {
+    format!("data:image/png;base64,{}", base64_encode(effects::CURSOR_PNG))
+}
+
+/// Standard base64, written out rather than pulled in as a dependency.
+///
+/// The input is the crate's own embedded constant, so this only ever runs over a
+/// few kilobytes at editor start-up.
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+
+        out.push(ALPHABET[(triple >> 18 & 0x3F) as usize] as char);
+        out.push(ALPHABET[(triple >> 12 & 0x3F) as usize] as char);
+        // The last group is padded rather than truncated, which is what a decoder
+        // expects for 1 or 2 leftover bytes.
+        out.push(if chunk.len() > 1 {
+            ALPHABET[(triple >> 6 & 0x3F) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            ALPHABET[(triple & 0x3F) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
 /// Create (or focus) the editor window for `session_id`, retiring the recorder.
 ///
 /// Shared by the recorder's "hand-off" and the projects window's
@@ -190,4 +236,73 @@ pub async fn new_recording(app: AppHandle) -> Result<(), String> {
         let _ = editor.close();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn base64_matches_the_standard_alphabet() {
+        // "Man" -> "TWFu" is RFC 4648's worked example.
+        assert_eq!(base64_encode(b"Man"), "TWFu");
+        assert_eq!(base64_encode(b"Ma"), "TWE=");
+        assert_eq!(base64_encode(b"M"), "TQ==");
+        assert_eq!(base64_encode(b""), "");
+    }
+
+    #[test]
+    fn base64_pads_only_the_last_group() {
+        assert_eq!(base64_encode(b"abc"), "YWJj");
+        assert_eq!(base64_encode(b"abcd"), "YWJjZA==");
+        assert_eq!(base64_encode(b"abcde"), "YWJjZGU=");
+    }
+
+    #[test]
+    fn the_asset_is_a_png_data_url() {
+        let url = cursor_asset();
+        assert!(url.starts_with("data:image/png;base64,"));
+        assert!(url.len() > 64, "suspiciously short: {url}");
+    }
+
+    /// The encoder is hand-written, so it is checked against a decoder that was
+    /// not: the system's `base64`. A one-character slip would surface as a broken
+    /// image in the preview and nowhere else.
+    #[test]
+    fn the_cursor_asset_decodes_back_to_the_original_png() {
+        let url = cursor_asset();
+        let encoded = url
+            .strip_prefix("data:image/png;base64,")
+            .expect("not a png data url");
+
+        let Ok(mut child) = Command::new("base64")
+            .arg("-d")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+        else {
+            return; // no base64 on PATH
+        };
+
+        child
+            .stdin
+            .as_mut()
+            .expect("stdin was piped")
+            .write_all(encoded.as_bytes())
+            .expect("could not write to base64");
+
+        let Ok(output) = child.wait_with_output() else {
+            return;
+        };
+        if !output.status.success() {
+            return;
+        }
+        assert_eq!(
+            output.stdout,
+            effects::CURSOR_PNG,
+            "the data url does not decode back to the embedded asset"
+        );
+    }
 }

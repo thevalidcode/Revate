@@ -26,6 +26,13 @@ use crate::utils::capture_meta::CaptureMeta;
 /// Fixed integration rate for the spring table.
 const SPRING_HZ: f64 = 120.0;
 
+/// The default spring angular frequency, in rad/s.
+///
+/// ~18 rad/s settles in roughly 150 ms, which reads as "smooth" rather than
+/// "laggy". The editor's smoothing control scales this and bakes the result
+/// into the smoothed table, so the preview and the export always share it.
+pub const DEFAULT_SMOOTHING: f64 = 18.0;
+
 /// Two cursor samples less than this far apart (in video pixels) count as
 /// "barely moved".
 const DWELL_RADIUS: f64 = 12.0;
@@ -90,6 +97,22 @@ impl CursorTrack {
     /// conversion possible; a take with no `capture.json` yields an empty track
     /// and the caller skips cursor work entirely.
     pub fn from_events(events: &[InputEvent], meta: &CaptureMeta, width: u32, height: u32) -> Self {
+        Self::from_events_with(events, meta, width, height, DEFAULT_SMOOTHING)
+    }
+
+    /// Build a track with an explicit spring frequency.
+    ///
+    /// This is where the editor's smoothing control lands: a higher omega
+    /// settles sooner and reads as snappier, a lower one lets the pointer
+    /// glide. The value is baked into the smoothed table here, so every
+    /// consumer — preview and export alike — inherits the same motion.
+    pub fn from_events_with(
+        events: &[InputEvent],
+        meta: &CaptureMeta,
+        width: u32,
+        height: u32,
+        smoothing: f64,
+    ) -> Self {
         let mut samples: Vec<CursorSample> = Vec::new();
         let mut clicks: Vec<Click> = Vec::new();
 
@@ -120,7 +143,7 @@ impl CursorTrack {
         samples.sort_by(|a, b| a.t.partial_cmp(&b.t).unwrap_or(std::cmp::Ordering::Equal));
         clicks.sort_by(|a, b| a.t.partial_cmp(&b.t).unwrap_or(std::cmp::Ordering::Equal));
 
-        let smoothed = smooth(&samples);
+        let smoothed = smooth(&samples, smoothing);
         Self {
             samples,
             smoothed,
@@ -282,7 +305,7 @@ fn push_dwell(out: &mut Vec<Dwell>, start: CursorSample, end: CursorSample, min_
 /// (so a hand tremor does not read as jitter). Critically damped means it
 /// approaches the target without overshooting or ringing — a springy cursor in a
 /// screencast looks like a bug.
-fn smooth(samples: &[CursorSample]) -> Vec<CursorSample> {
+fn smooth(samples: &[CursorSample], smoothing: f64) -> Vec<CursorSample> {
     if samples.is_empty() {
         return Vec::new();
     }
@@ -292,9 +315,14 @@ fn smooth(samples: &[CursorSample]) -> Vec<CursorSample> {
     let end_t = samples.last().unwrap().t;
     let count = (((end_t - start.t) / step).ceil().max(1.0) as usize) + 1;
 
-    // Critically damped: stiffness = omega^2, damping = 2*omega. omega ≈ 18 rad/s
-    // settles in roughly 150 ms, which reads as "smooth" rather than "laggy".
-    let omega = 18.0;
+    // Critically damped: stiffness = omega^2, damping = 2*omega. Omega comes
+    // from the caller (the editor's smoothing control); a non-finite value
+    // falls back to the default rather than poisoning the whole table.
+    let omega = if smoothing.is_finite() {
+        smoothing.clamp(4.0, 48.0)
+    } else {
+        DEFAULT_SMOOTHING
+    };
     let stiffness = omega * omega;
     let damping = 2.0 * omega;
 

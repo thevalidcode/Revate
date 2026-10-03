@@ -7,6 +7,7 @@ pub mod audio;
 pub mod capture;
 pub mod commands;
 pub mod cursor;
+pub mod effects;
 pub mod events;
 pub mod input;
 pub mod state;
@@ -55,6 +56,7 @@ pub fn run() {
             commands::editor::new_recording,
             commands::editor::session_info,
             commands::editor::make_thumbnail,
+            commands::editor::cursor_asset,
             // Cursor trail + auto-zoom analysis.
             commands::analysis::session_analysis,
             // Export pipeline.

@@ -28,11 +28,12 @@ use serde::Serialize;
 use tauri::AppHandle;
 
 use crate::commands::editor::{session_dir, video_in};
+use crate::effects::{build_timeline, ClickMark, EffectRow, OverlayOptions, SpriteInfo};
 use crate::events::reader::read_session_events;
 use crate::input::cursor::CursorTrack;
 use crate::utils::capture_meta::read_capture_meta;
 use crate::utils::ffprobe;
-use crate::zoom::planner::{plan_zoom_segments, ZoomReason, ZoomSegment};
+use crate::zoom::planner::{plan_zoom_segments, ZoomReason, ZoomSegment, MAX_ZOOM};
 
 /// Why a zoom segment exists, in a form the UI can switch on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -89,6 +90,44 @@ pub struct SessionAnalysis {
     pub click_count: usize,
     /// Planned, merged, non-overlapping zoom segments, in time order.
     pub zoom_segments: Vec<SegmentInfo>,
+    /// The resolved effects table the preview animates from: one row per
+    /// 1/60 s with the viewport rectangle and the cursor tip, in video pixels.
+    /// Empty when the take has no trail, or when both layers are switched off.
+    pub rows: Vec<EffectRow>,
+    /// Clicks, for the preview's ripple.
+    pub clicks: Vec<ClickMark>,
+    /// The cursor image's geometry, so the preview anchors the tip exactly
+    /// where the export does.
+    pub cursor_sprite: SpriteInfo,
+}
+
+impl SessionAnalysis {
+    /// A take with no usable trail: nothing to zoom, no cursor to draw.
+    ///
+    /// This is what the export falls back to when analysis fails. It is not an
+    /// error state — a recording whose `events.revents` went missing should still
+    /// export its video, just without the effect layers, and failing the whole
+    /// export over a missing sidecar would be the worse behaviour.
+    ///
+    /// The zeroed geometry is never read in that path (the export probes the
+    /// video for its real size), and `has_cursor_trail: false` is what keeps the
+    /// cursor layer switched off.
+    pub fn empty() -> Self {
+        Self {
+            has_cursor_trail: false,
+            cursor_baked_in: false,
+            event_count: 0,
+            skipped: 0,
+            width: 0,
+            height: 0,
+            duration_ms: 0,
+            click_count: 0,
+            zoom_segments: Vec::new(),
+            rows: Vec::new(),
+            clicks: Vec::new(),
+            cursor_sprite: SpriteInfo::default(),
+        }
+    }
 }
 
 /// Analyze a session folder from disk.
@@ -96,6 +135,17 @@ pub struct SessionAnalysis {
 /// Falls back to a graceful "no cursor work" result rather than erroring when
 /// the trail or the geometry sidecar is missing.
 pub fn analyze(dir: &Path) -> anyhow::Result<SessionAnalysis> {
+    analyze_with(dir, &OverlayOptions::default())
+}
+
+/// Analyze with the editor's effect settings folded in.
+///
+/// The options touch three things: the spring that smooths the trail, the
+/// strength multiplier on the planned zooms, and whether each layer is on at
+/// all. Everything downstream — the preview table and the export — is derived
+/// from this one call, so the sliders and the final render cannot disagree.
+pub fn analyze_with(dir: &Path, options: &OverlayOptions) -> anyhow::Result<SessionAnalysis> {
+    let options = options.sanitized();
     let video = video_in(dir).map_err(anyhow::Error::msg)?;
     let info = ffprobe::probe(&video)?;
     let meta = read_capture_meta(dir);
@@ -106,7 +156,13 @@ pub fn analyze(dir: &Path) -> anyhow::Result<SessionAnalysis> {
     // Without the geometry sidecar there is no honest way to map screen
     // coordinates into this video's pixels, so the trail is not usable.
     let track = meta.as_ref().map(|meta| {
-        CursorTrack::from_events(&log.events, meta, info.width, info.height)
+        CursorTrack::from_events_with(
+            &log.events,
+            meta,
+            info.width,
+            info.height,
+            options.cursor_smoothing,
+        )
     });
     let click_count = track.as_ref().map(|t| t.clicks().len()).unwrap_or(0);
 
@@ -114,22 +170,40 @@ pub fn analyze(dir: &Path) -> anyhow::Result<SessionAnalysis> {
     // or a region take) is not a trail.
     let has_cursor_trail = track.as_ref().is_some_and(|t| !t.is_empty());
 
-    let zoom_segments = match (&track, meta.as_ref()) {
-        (Some(track), Some(_)) => plan_zoom_segments(&log.events, track),
+    let mut segments = match (&track, meta.as_ref()) {
+        (Some(track), Some(_)) if options.zoom => plan_zoom_segments(&log.events, track),
         // No metadata means no frame to clamp the crop to; planning against a
-        // guessed frame would produce segments that fall off the video.
+        // guessed frame would produce segments that fall off the video. And
+        // with the zoom layer switched off there is nothing for a plan to do.
         _ => Vec::new(),
+    };
+
+    // The strength slider bends every planned zoom before anything downstream
+    // sees it, so the timeline and the export both read the bent plan.
+    for segment in &mut segments {
+        segment.zoom_level = (segment.zoom_level * options.zoom_strength).clamp(1.0, MAX_ZOOM);
     }
-    .into_iter()
-    .map(|s| SegmentInfo {
-        start_t: s.start_t,
-        end_t: s.end_t,
-        x: s.target_x,
-        y: s.target_y,
-        zoom_level: s.zoom_level,
-        reason: SegmentReason::from(&s),
-    })
-    .collect();
+
+    let timeline = build_timeline(
+        info.width,
+        info.height,
+        info.duration_ms,
+        &segments,
+        track.as_ref().filter(|t| !t.is_empty()),
+        &options,
+    );
+
+    let zoom_segments = segments
+        .iter()
+        .map(|s| SegmentInfo {
+            start_t: s.start_t,
+            end_t: s.end_t,
+            x: s.target_x,
+            y: s.target_y,
+            zoom_level: s.zoom_level,
+            reason: SegmentReason::from(s),
+        })
+        .collect();
 
     Ok(SessionAnalysis {
         has_cursor_trail,
@@ -141,14 +215,25 @@ pub fn analyze(dir: &Path) -> anyhow::Result<SessionAnalysis> {
         duration_ms: info.duration_ms,
         click_count,
         zoom_segments,
+        rows: timeline.rows,
+        clicks: timeline.clicks,
+        cursor_sprite: SpriteInfo::default(),
     })
 }
 
-/// Frontend entry point for [`analyze`].
+/// Frontend entry point for [`analyze_with`].
+///
+/// `options` are the editor's current effect settings, so moving a slider
+/// re-resolves the preview table; omitting them keeps the defaults, which is
+/// what the first load does.
 #[tauri::command]
-pub async fn session_analysis(app: AppHandle, session_id: String) -> Result<SessionAnalysis, String> {
+pub async fn session_analysis(
+    app: AppHandle,
+    session_id: String,
+    options: Option<OverlayOptions>,
+) -> Result<SessionAnalysis, String> {
     let dir = session_dir(&app, &session_id)?;
-    analyze(&dir).map_err(|e| e.to_string())
+    analyze_with(&dir, &options.unwrap_or_default()).map_err(|e| e.to_string())
 }
 #[cfg(test)]
 mod tests {
@@ -260,12 +345,31 @@ mod tests {
                 zoom_level: 1.8,
                 reason: SegmentReason::Click,
             }],
+            rows: vec![EffectRow {
+                t: 0.0,
+                x: 0.0,
+                y: 0.0,
+                w: 1920.0,
+                h: 1080.0,
+                cx: Some(100.0),
+                cy: Some(200.0),
+            }],
+            clicks: vec![ClickMark {
+                t: 1.0,
+                x: 640.0,
+                y: 360.0,
+            }],
+            cursor_sprite: SpriteInfo::default(),
         };
         let json = serde_json::to_value(&a).unwrap();
         assert_eq!(json["hasCursorTrail"], true);
         assert_eq!(json["cursorBakedIn"], false);
         assert_eq!(json["zoomSegments"][0]["reason"], "click");
         assert_eq!(json["zoomSegments"][0]["startT"], 1.0);
+        // The preview table travels as camelCase too, with a null-able cursor.
+        assert_eq!(json["rows"][0]["cx"], 100.0);
+        assert_eq!(json["clicks"][0]["x"], 640.0);
+        assert_eq!(json["cursorSprite"]["hotX"], 82.0);
     }
 
     /// A session with no `events.revents` must still analyze cleanly — that is
@@ -373,6 +477,36 @@ mod tests {
             }
             // Ordered in time, so the export's piecewise filter is well formed.
             assert!(a.zoom_segments[0].start_t <= a.zoom_segments[1].start_t);
+
+            // The effects table travels with the analysis: rows carry the
+            // cursor tip, and the clicks come along for the ripple.
+            assert!(!a.rows.is_empty(), "the trail should produce a timeline");
+            assert!(
+                a.rows.iter().any(|r| r.cx.is_some() && r.cy.is_some()),
+                "rows should carry the cursor"
+            );
+            assert_eq!(a.clicks.len(), a.click_count);
+
+            // The strength slider bends the plan before the table is built, so
+            // a doubled strength is visible in both places.
+            let strong = analyze_with(
+                &dir,
+                &OverlayOptions {
+                    zoom_strength: 2.0,
+                    ..OverlayOptions::default()
+                },
+            )
+            .expect("the settings variant should analyze too");
+            assert!(
+                strong.zoom_segments[0].zoom_level > a.zoom_segments[0].zoom_level,
+                "strength should raise the zoom: {} vs {}",
+                strong.zoom_segments[0].zoom_level,
+                a.zoom_segments[0].zoom_level
+            );
+            assert!(
+                strong.rows.iter().any(|r| r.w < 1920.0),
+                "the strengthened table should carry the smaller viewport"
+            );
         }
 
         std::fs::remove_dir_all(&dir).ok();

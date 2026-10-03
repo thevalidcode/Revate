@@ -7,6 +7,7 @@ import type {
   AudioDevice,
   DisplayRect,
   ExportArgs,
+  OverlayOptions,
   ProjectInfo,
   SessionAnalysis,
   SessionInfo,
@@ -73,13 +74,16 @@ export const makeThumbnail = (sessionId: string) =>
  * Returns an empty `zoomSegments` (and `hasCursorTrail: false`) for a take
  * recorded without input tracking — that is a normal outcome, not an error.
  */
-export const sessionAnalysis = (sessionId: string) =>
-  invoke<SessionAnalysis>("session_analysis", { sessionId });
+export const sessionAnalysis = (sessionId: string, options?: OverlayOptions) =>
+  invoke<SessionAnalysis>("session_analysis", { sessionId, options });
 
 // ---------- Export ----------
 
 export const exportRecording = (args: ExportArgs) =>
   invoke<string>("export_recording", { ...args });
+
+/** Extract a still `data:` URL for the cursor sprite. */
+export const cursorAsset = () => invoke<string>("cursor_asset");
 
 /** Select the saved file in Finder. */
 export const revealInFinder = (path: string) =>

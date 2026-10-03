@@ -91,6 +91,77 @@ export interface SessionAnalysis {
   durationMs: number;
   clickCount: number;
   zoomSegments: ZoomSegmentInfo[];
+  /**
+   * The resolved effects table, one row per 1/60 s, in video pixels. This is the
+   * same table the export turns into FFmpeg commands, so the preview and the
+   * saved file cannot disagree. Empty when the take has no trail, or when both
+   * layers are switched off.
+   */
+  rows: EffectRow[];
+  /** Clicks, for the preview's ripple. */
+  clicks: ClickMark[];
+  /**
+   * The cursor image's geometry, so the preview anchors the tip exactly where the
+   * export does instead of guessing at its own hotspot.
+   */
+  cursorSprite: SpriteInfo;
+}
+
+/**
+ * Mirror of `effects::EffectRow` — one tick of the effects table.
+ *
+ * `x/y/w/h` are the visible rectangle in **video pixels**; `cx/cy` are the cursor
+ * tip in the same space, or null when the pointer was not known at that instant.
+ */
+export interface EffectRow {
+  /** Seconds from the start of the take. */
+  t: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  cx: number | null;
+  cy: number | null;
+}
+
+/** Mirror of `effects::ClickMark`. */
+export interface ClickMark {
+  t: number;
+  x: number;
+  y: number;
+}
+
+/** Mirror of `effects::SpriteInfo` — the cursor image's own geometry. */
+export interface SpriteInfo {
+  width: number;
+  height: number;
+  /** The hotspot (the tip of the arrow) inside the image. */
+  hotX: number;
+  hotY: number;
+  /** The opaque content's box, used to size the *visible* arrow. */
+  contentWidth: number;
+  contentHeight: number;
+}
+
+/**
+ * Mirror of `effects::OverlayOptions` — the sidebar's effect sliders.
+ *
+ * These are sent with both `session_analysis` and `export_recording` so the
+ * preview and the render are resolved from the same settings. Rust clamps every
+ * field, so an out-of-range value here is corrected rather than trusted.
+ */
+export interface OverlayOptions {
+  zoom: boolean;
+  /** Multiplier on each planned segment's zoom level. */
+  zoomStrength: number;
+  /** How far the viewport centre is held away from the frame's edges. */
+  zoomEdgeSnap: number;
+  cursor: boolean;
+  /** Multiplier on the cursor's size. */
+  cursorScale: number;
+  /** Spring angular frequency in rad/s; higher settles faster. */
+  cursorSmoothing: number;
+  ripples: boolean;
 }
 
 /** Mirror of `commands::editor::SessionInfo`. */
@@ -130,6 +201,12 @@ export interface ExportArgs {
    * when present; omit it (or use a full-frame rect) for no crop.
    */
   crop?: NormalizedCrop | null;
+  /**
+   * The editor's effect settings. Sent so the export is resolved from exactly
+   * what the preview showed — omit it and the defaults are used, which is what a
+   * caller with no sidebar should get.
+   */
+  options?: OverlayOptions;
 }
 
 /** A crop rectangle in normalized 0–1 frame coordinates. */

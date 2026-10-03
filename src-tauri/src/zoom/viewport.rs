@@ -111,6 +111,89 @@ impl Viewport {
             height,
         }
     }
+
+    /// The rectangle for one segment at time `t`, keeping `cursor` in view.
+    ///
+    /// This is the auto-zoom's "auto" half, and it mirrors the decision Cap's
+    /// `calculate_zoom_and_center_for_cursor` makes: the camera first aims at
+    /// the planned focus point — snapped away from the frame's edges by
+    /// `edge_snap_ratio`, so a target near a corner does not slam the viewport
+    /// against it and then have to wrench back — and is then nudged the
+    /// *smallest* distance that puts the pointer back inside the visible area.
+    ///
+    /// `cursor` is `None` for takes with no trail: the viewport is then the
+    /// plain centred crop, which is also what a hand-built segment gets.
+    pub fn following(
+        frame_width: f64,
+        frame_height: f64,
+        segment: &ZoomSegment,
+        t: f64,
+        cursor: Option<(f64, f64)>,
+        edge_snap_ratio: f64,
+    ) -> Self {
+        if frame_width <= 0.0 || frame_height <= 0.0 {
+            return Viewport::full(frame_width, frame_height);
+        }
+
+        let zoom = 1.0 + (segment.zoom_level - 1.0) * ease_in_out(progress_through(segment, t));
+        let width = frame_width / zoom;
+        let height = frame_height / zoom;
+        let half_w = width / 2.0;
+        let half_h = height / 2.0;
+
+        // Where the camera wants to be, in the frame's own coordinates…
+        let focus_x = snap_to_edges(segment.target_x / frame_width, edge_snap_ratio);
+        let focus_y = snap_to_edges(segment.target_y / frame_height, edge_snap_ratio);
+
+        // …mapped onto the range the centre may move through, then clamped so
+        // the rectangle never leaves the frame.
+        let min_cx = half_w;
+        let max_cx = frame_width - half_w;
+        let min_cy = half_h;
+        let max_cy = frame_height - half_h;
+        let mut cx = (min_cx + focus_x * (max_cx - min_cx)).clamp(min_cx, max_cx);
+        let mut cy = (min_cy + focus_y * (max_cy - min_cy)).clamp(min_cy, max_cy);
+
+        // The follow: a pointer that has wandered off the visible area pulls
+        // the camera just far enough to be back on it. When it is already
+        // visible nothing happens — that is what keeps the zoom calm during a
+        // click instead of gluing the frame to every hand tremor.
+        if let Some((ux, uy)) = cursor {
+            if ux < cx - half_w {
+                cx = (ux + half_w).clamp(min_cx, max_cx);
+            } else if ux > cx + half_w {
+                cx = (ux - half_w).clamp(min_cx, max_cx);
+            }
+            if uy < cy - half_h {
+                cy = (uy + half_h).clamp(min_cy, max_cy);
+            } else if uy > cy + half_h {
+                cy = (uy - half_h).clamp(min_cy, max_cy);
+            }
+        }
+
+        Viewport {
+            x: cx - half_w,
+            y: cy - half_h,
+            width,
+            height,
+        }
+    }
+}
+
+/// Keep a normalised coordinate out of the frame's outer `ratio`.
+///
+/// A focus point 20 px from the left edge would otherwise place the viewport's
+/// centre essentially at the frame's edge; snapping it to the inner band means
+/// the camera stops short, which reads as deliberate framing rather than as a
+/// crop that ran out of room.
+pub fn snap_to_edges(value: f64, edge_snap_ratio: f64) -> f64 {
+    let ratio = if edge_snap_ratio.is_finite() {
+        edge_snap_ratio.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let band = ratio / 2.0;
+    value.clamp(band, 1.0 - band)
 }
 
 /// Eased progress through a segment: 0 at its start, 1 at its end.
@@ -278,5 +361,66 @@ mod tests {
         let mid = Viewport::at(1920.0, 1080.0, &segments, 1.05);
         assert!(mid.zoom(1920.0) > 1.0, "should be partway in: {mid:?}");
         assert!(mid.width.is_finite());
+    }
+
+    #[test]
+    fn following_keeps_the_cursor_on_screen() {
+        // The zoom aims at the middle, but the pointer is far off to the right.
+        let segment = segment(1.0, 3.0, 960.0, 540.0, 2.0);
+        let view = Viewport::following(1920.0, 1080.0, &segment, 2.0, Some((1700.0, 900.0)), 0.0);
+
+        assert!((view.width - 960.0).abs() < 1e-6, "zoom itself is unchanged");
+        assert!(
+            view.x <= 1700.0 && 1700.0 <= view.x + view.width,
+            "cursor x must be visible: {view:?}"
+        );
+        assert!(view.y <= 900.0 && 900.0 <= view.y + view.height);
+        // …and it must not have overshot: the pointer sits on the right edge.
+        assert!((view.x + view.width - 1700.0).abs() < 1e-6);
+        assert!((view.y + view.height - 900.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn following_leaves_a_visible_cursor_alone() {
+        let segment = segment(1.0, 3.0, 960.0, 540.0, 2.0);
+        let centred = Viewport::following(1920.0, 1080.0, &segment, 2.0, None, 0.0);
+        let with_cursor =
+            Viewport::following(1920.0, 1080.0, &segment, 2.0, Some((960.0, 540.0)), 0.0);
+        assert_eq!(centred, with_cursor, "a centred pointer needs no follow");
+    }
+
+    #[test]
+    fn following_falls_back_to_the_plain_crop_without_a_cursor() {
+        let segment = segment(1.0, 3.0, 480.0, 270.0, 2.0);
+        let follow = Viewport::following(1920.0, 1080.0, &segment, 2.0, None, 0.3);
+        let plain = Viewport::for_segment(1920.0, 1080.0, &segment, 2.0);
+        // No cursor: only the edge snap can differ, and the rect stays legal.
+        assert!((follow.width - plain.width).abs() < 1e-9);
+        assert!(follow.x >= 0.0 && follow.x + follow.width <= 1920.0);
+    }
+
+    #[test]
+    fn edge_snap_pulls_the_camera_away_from_the_frame_edge() {
+        // A target hard against the left edge, with no cursor to follow.
+        let segment = segment(1.0, 3.0, 0.0, 540.0, 2.0);
+        let unsnapped = Viewport::following(1920.0, 1080.0, &segment, 2.0, None, 0.0);
+        let snapped = Viewport::following(1920.0, 1080.0, &segment, 2.0, None, 0.3);
+        assert!((unsnapped.x - 0.0).abs() < 1e-6, "no snap means the left edge");
+        assert!(snapped.x > unsnapped.x, "the snap should hold the camera back");
+        // 15% of the movable range (1920 - 960) is 144 px.
+        assert!((snapped.x - 144.0).abs() < 1e-6, "x was {}", snapped.x);
+
+        assert!((snap_to_edges(0.0, 0.3) - 0.15).abs() < 1e-9);
+        assert!((snap_to_edges(0.5, 0.3) - 0.5).abs() < 1e-9);
+        assert!((snap_to_edges(1.0, 0.3) - 0.85).abs() < 1e-9);
+        // A non-finite ratio must not poison the clamp.
+        assert!((snap_to_edges(0.5, f64::NAN) - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_degenerate_frame_makes_following_a_no_op() {
+        let segment = segment(1.0, 3.0, 0.0, 0.0, 2.0);
+        let view = Viewport::following(0.0, 0.0, &segment, 2.0, Some((10.0, 10.0)), 0.3);
+        assert_eq!(view, Viewport::full(0.0, 0.0));
     }
 }

@@ -51,3 +51,62 @@ export function useElementSize(ref: RefObject<HTMLElement | null>): ElementSize 
 
   return size;
 }
+
+/**
+ * The media element's current playback time, refreshed on every animation frame
+ * while it plays and left alone while it is paused.
+ *
+ * Effects keyed to time (the auto-zoom, the cursor trail) have to be drawn at the
+ * frame the video is actually showing. `timeupdate` fires about four times a
+ * second, which is far too coarse to drive a 60 Hz zoom — it would visibly step.
+ * Requesting an animation frame is also what keeps the sampled time in step with
+ * what is on screen rather than with when React last happened to re-render.
+ *
+ * Returns 0 while paused, since a scrubbed-but-not-played video still has a
+ * meaningful `currentTime` the preview should reflect.
+ */
+export function usePlaybackTime(
+  ref: RefObject<HTMLMediaElement | null>,
+): number {
+  const [time, setTime] = useState(0);
+
+  useEffect(() => {
+    const media = ref.current;
+    if (!media) return;
+
+    let frame = 0;
+    const publish = () => {
+      frame = 0;
+      setTime(media.currentTime);
+    };
+    const loop = () => {
+      publish();
+      frame = requestAnimationFrame(loop);
+    };
+
+    const start = () => {
+      if (!frame) frame = requestAnimationFrame(loop);
+    };
+    const stop = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = 0;
+      publish();
+    };
+
+    media.addEventListener("play", start);
+    media.addEventListener("pause", stop);
+    media.addEventListener("seeked", publish);
+    media.addEventListener("loadedmetadata", publish);
+    publish();
+
+    return () => {
+      media.removeEventListener("play", start);
+      media.removeEventListener("pause", stop);
+      media.removeEventListener("seeked", publish);
+      media.removeEventListener("loadedmetadata", publish);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [ref]);
+
+  return time;
+}
