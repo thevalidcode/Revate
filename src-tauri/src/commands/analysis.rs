@@ -24,7 +24,7 @@
 
 use std::path::Path;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 use crate::commands::editor::{session_dir, video_in};
@@ -36,7 +36,7 @@ use crate::utils::ffprobe;
 use crate::zoom::planner::{plan_zoom_segments, ZoomReason, ZoomSegment, MAX_ZOOM};
 
 /// Why a zoom segment exists, in a form the UI can switch on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SegmentReason {
     /// The user clicked here.
@@ -55,7 +55,7 @@ impl From<&ZoomSegment> for SegmentReason {
 }
 
 /// One planned zoom, flattened for the editor timeline.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SegmentInfo {
     pub start_t: f64,
@@ -69,7 +69,7 @@ pub struct SegmentInfo {
 
 /// Everything the editor needs to draw the auto-zoom overlay and decide whether
 /// the cursor layer is worth compositing.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionAnalysis {
     /// False when the take has no usable trail: no `events.revents`, no
@@ -221,6 +221,56 @@ pub fn analyze_with(dir: &Path, options: &OverlayOptions) -> anyhow::Result<Sess
     })
 }
 
+/// The warmed analysis written at stop time, so the editor opens on it.
+///
+/// `session_analysis` recomputes when the sliders move, but the first paint of
+/// the editing session should not pay for a full pass over the trail — the
+/// effects are applied the moment the recording stops, not when the user first
+/// looks at the editor. A stale or unreadable cache is treated exactly like a
+/// take that never had one: the editor recomputes from the trail.
+pub const ANALYSIS_CACHE_FILE: &str = "analysis.json";
+
+/// Resolve the default timeline for `dir` and write it to the cache file.
+///
+/// Called once, at stop time, after the cursor trail is closed. Only the
+/// default options are warmed: slider moves re-resolve from the trail anyway,
+/// and caching every combination would be unbounded.
+pub fn warm_analysis_cache(dir: &Path) {
+    // A missing trail is a normal take, not a failure — the cache simply stays
+    // empty and the editor recomputes (to the same empty result).
+    let analysis = match analyze_with(dir, &OverlayOptions::default()) {
+        Ok(analysis) => analysis,
+        Err(e) => {
+            eprintln!("[recording] warming the effects cache failed: {e}");
+            return;
+        }
+    };
+
+    let text = match serde_json::to_string(&analysis) {
+        Ok(text) => text,
+        Err(e) => {
+            eprintln!("[recording] serializing the effects cache failed: {e}");
+            return;
+        }
+    };
+
+    if let Err(e) = std::fs::write(dir.join(ANALYSIS_CACHE_FILE), text) {
+        eprintln!("[recording] writing the effects cache failed: {e}");
+    }
+}
+
+/// Read the warmed analysis, or `None` when there is nothing usable cached.
+pub fn read_analysis_cache(dir: &Path) -> Option<SessionAnalysis> {
+    let text = std::fs::read_to_string(dir.join(ANALYSIS_CACHE_FILE)).ok()?;
+    match serde_json::from_str::<SessionAnalysis>(&text) {
+        Ok(analysis) => Some(analysis),
+        Err(e) => {
+            eprintln!("[analysis] the effects cache did not parse, recomputing: {e}");
+            None
+        }
+    }
+}
+
 /// Frontend entry point for [`analyze_with`].
 ///
 /// `options` are the editor's current effect settings, so moving a slider
@@ -233,7 +283,21 @@ pub async fn session_analysis(
     options: Option<OverlayOptions>,
 ) -> Result<SessionAnalysis, String> {
     let dir = session_dir(&app, &session_id)?;
-    analyze_with(&dir, &options.unwrap_or_default()).map_err(|e| e.to_string())
+    // Sanitized first: a request with out-of-range values that clamp to the
+    // defaults is the defaults, and should hit the cache like any other.
+    let options = options.unwrap_or_default().sanitized();
+
+    // Default settings with a warmed cache: the editor's first paint reads what
+    // stop time computed, so the effects are already applied when the session
+    // opens. Anything else (a slider moved, or a take recorded before warming
+    // existed) re-resolves from the trail, which always stays authoritative.
+    if options == OverlayOptions::default() {
+        if let Some(cached) = read_analysis_cache(&dir) {
+            return Ok(cached);
+        }
+    }
+
+    analyze_with(&dir, &options).map_err(|e| e.to_string())
 }
 #[cfg(test)]
 mod tests {

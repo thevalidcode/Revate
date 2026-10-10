@@ -6,3 +6,4 @@ pub mod planner;
 pub mod spring;
 pub mod easing;
 pub mod viewport;
+pub mod follow;

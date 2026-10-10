@@ -7,6 +7,7 @@ use tauri::{AppHandle, State};
 
 use crate::audio::{mic, mixer, system};
 use crate::capture::screen::{find_screen_index_for, list_avfoundation_devices, record_loop, reap_stray_captures, CaptureConfig, Region};
+use crate::commands::analysis::warm_analysis_cache;
 use crate::commands::displays::list_display_rects;
 use crate::input::tracker::Tracker;
 use crate::state::{RecordingSession, RecordingState, StopResult};
@@ -391,6 +392,12 @@ fn finish_session(session: RecordingSession) -> anyhow::Result<FinishedTake> {
         },
         None => 0,
     };
+
+    // Warm the effects cache now that the trail is closed: by the time the
+    // editor opens, the zoom segments and the cursor timeline are already
+    // resolved, so the first paint shows the finished effects rather than
+    // paying for a full pass over the trail first.
+    warm_analysis_cache(&session.project_dir);
 
     let mut tracks: Vec<PathBuf> = Vec::new();
 
