@@ -85,19 +85,19 @@ jobs:
                     - name: macOS (Apple Silicon)
                       os: macos-latest
                       target: aarch64-apple-darwin
-                      artifact: selah-macos-arm64
+                      artifact: revate-macos-arm64
                     - name: macOS (Intel)
                       os: macos-latest
                       target: x86_64-apple-darwin
-                      artifact: selah-macos-x64
+                      artifact: revate-macos-x64
                     - name: Windows
                       os: windows-latest
                       target: ""
-                      artifact: selah-windows
+                      artifact: revate-windows
                     - name: Linux
                       os: ubuntu-22.04
                       target: ""
-                      artifact: selah-linux
+                      artifact: revate-linux
         steps:
             - uses: actions/checkout@v4
 
