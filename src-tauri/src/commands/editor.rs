@@ -11,7 +11,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+
+#[cfg(target_os = "macos")]
+use tauri::TitleBarStyle;
 
 use crate::effects;
 use crate::utils::{ffprobe, paths};
@@ -113,7 +116,15 @@ pub async fn make_thumbnail(app: AppHandle, session_id: String) -> Result<String
     let already_there = thumb.metadata().map(|m| m.len() > 0).unwrap_or(false);
     if !already_there {
         let status = Command::new("ffmpeg")
-            .args(["-hide_banner", "-loglevel", "error", "-y", "-ss", "0.2", "-i"])
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-ss",
+                "0.2",
+                "-i",
+            ])
             .arg(&video)
             .args(["-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "4"])
             .arg(&thumb)
@@ -139,7 +150,10 @@ pub async fn make_thumbnail(app: AppHandle, session_id: String) -> Result<String
 /// live, and writing it out per session would leave litter behind.
 #[tauri::command]
 pub fn cursor_asset() -> String {
-    format!("data:image/png;base64,{}", base64_encode(effects::CURSOR_PNG))
+    format!(
+        "data:image/png;base64,{}",
+        base64_encode(effects::CURSOR_PNG)
+    )
 }
 
 /// Standard base64, written out rather than pulled in as a dependency.
@@ -147,8 +161,7 @@ pub fn cursor_asset() -> String {
 /// The input is the crate's own embedded constant, so this only ever runs over a
 /// few kilobytes at editor start-up.
 fn base64_encode(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
@@ -189,17 +202,21 @@ pub fn spawn_editor(app: &AppHandle, session_id: &str) -> Result<(), String> {
     }
 
     let url = WebviewUrl::App(format!("index.html?editor=1&session={session_id}").into());
-    let window = WebviewWindowBuilder::new(app, EDITOR_LABEL, url)
+    let mut builder = WebviewWindowBuilder::new(app, EDITOR_LABEL, url)
         .title("Revate — Editor")
         .inner_size(1000.0, 720.0)
         .min_inner_size(880.0, 620.0)
         .resizable(true)
-        .center()
-        .title_bar_style(TitleBarStyle::Overlay)
-        .hidden_title(true)
-        .build()
-        .map_err(|e| e.to_string())?;
+        .center();
 
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(TitleBarStyle::Overlay)
+            .hidden_title(true);
+    }
+
+    let window = builder.build().map_err(|e| e.to_string())?;
     // The editor is built and focusable before the recorder goes away, so the
     // app never has a moment with no window. `lib.rs` owns the "quit when the
     // last window closes" rule, which keeps both handoffs seamless.
@@ -221,16 +238,22 @@ pub async fn open_editor(app: AppHandle, session_id: String) -> Result<(), Strin
 #[tauri::command]
 pub async fn new_recording(app: AppHandle) -> Result<(), String> {
     if app.get_webview_window(MAIN_LABEL).is_none() {
-        WebviewWindowBuilder::new(&app, MAIN_LABEL, WebviewUrl::App("index.html".into()))
-            .title("Revate")
-            .inner_size(720.0, 880.0)
-            .min_inner_size(720.0, 620.0)
-            .resizable(true)
-            .center()
-            .title_bar_style(TitleBarStyle::Overlay)
-            .hidden_title(true)
-            .build()
-            .map_err(|e| e.to_string())?;
+        let mut builder =
+            WebviewWindowBuilder::new(&app, MAIN_LABEL, WebviewUrl::App("index.html".into()))
+                .title("Revate")
+                .inner_size(720.0, 880.0)
+                .min_inner_size(720.0, 620.0)
+                .resizable(true)
+                .center();
+
+        #[cfg(target_os = "macos")]
+        {
+            builder = builder
+                .title_bar_style(TitleBarStyle::Overlay)
+                .hidden_title(true);
+        }
+
+        builder.build().map_err(|e| e.to_string())?;
     }
     if let Some(editor) = app.get_webview_window(EDITOR_LABEL) {
         let _ = editor.close();

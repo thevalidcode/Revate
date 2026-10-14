@@ -11,7 +11,10 @@
 use std::path::Path;
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+
+#[cfg(target_os = "macos")]
+use tauri::TitleBarStyle;
 
 use crate::commands::editor::{session_dir, spawn_editor, video_in};
 use crate::utils::{ffprobe, paths};
@@ -166,7 +169,7 @@ pub async fn open_projects_window(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    let window = WebviewWindowBuilder::new(
+    let mut builder = WebviewWindowBuilder::new(
         &app,
         PROJECTS_LABEL,
         WebviewUrl::App("index.html?projects=1".into()),
@@ -175,12 +178,16 @@ pub async fn open_projects_window(app: AppHandle) -> Result<(), String> {
     .inner_size(900.0, 600.0)
     .min_inner_size(640.0, 420.0)
     .resizable(true)
-    .center()
-    .title_bar_style(TitleBarStyle::Overlay)
-    .hidden_title(true)
-    .build()
-    .map_err(|e| e.to_string())?;
+    .center();
 
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(TitleBarStyle::Overlay)
+            .hidden_title(true);
+    }
+
+    let window = builder.build().map_err(|e| e.to_string())?;
     let _ = window.set_focus();
     Ok(())
 }
