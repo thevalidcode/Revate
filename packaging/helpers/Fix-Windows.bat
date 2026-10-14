@@ -1,6 +1,6 @@
 @echo off
 setlocal
-echo Selah — Windows installer helper
+echo Revate — Windows installer helper
 echo ================================
 echo.
 
@@ -8,12 +8,12 @@ REM Locate the installer in the same folder as this script
 set "SCRIPT_DIR=%~dp0"
 set "INSTALLER="
 
-for %%F in ("%SCRIPT_DIR%Selah-Setup-*.exe") do (
+for %%F in ("%SCRIPT_DIR%Revate-Setup-*.exe") do (
     set "INSTALLER=%%F"
     goto :found
 )
 
-echo Could not find Selah-Setup-*.exe in the same folder as this script.
+echo Could not find Revate-Setup-*.exe in the same folder as this script.
 echo Please make sure both files are in the same folder.
 pause
 exit /b 1
@@ -29,5 +29,5 @@ echo Launching installer...
 "%INSTALLER%"
 
 echo.
-echo If installation succeeded, Selah will be in your Start menu.
+echo If installation succeeded, Revate will be in your Start menu.
 pause
