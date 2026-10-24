@@ -17,15 +17,14 @@
         "label": "main",
         "title": "Revate",
         "width": 720,
-        "height": 880,
+        "height": 700,
         "minWidth": 720,
-        "minHeight": 620,
         "resizable": true,
         "fullscreen": false,
         "center": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "decorations": true
+        "decorations": false
       }
     ],
     "security": {
